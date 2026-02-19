@@ -1,7 +1,10 @@
 pub trait Suspicious {
     fn is_suspicious(&self) -> bool;
 }
-
+// proc/pid/status structure
+// most importatnt for now is status and tracer_pid
+// if process has tracer_pid that is not equal to 0 it means that process is being changed or
+// debugged by other proccess
 #[derive(Debug)]
 pub struct Proc {
     name: String,

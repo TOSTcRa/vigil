@@ -1,32 +1,102 @@
-# VIGIL ANTI-CHEAT system
+# VIGIL Anti-Cheat System
 
-## basically in plans to be used for playing games like cs2 but with better anti cheat
+Linux-native anti-cheat for competitive gaming (CS2 and others). Written in Rust.
 
-### its not a faceit opponent
+Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
-#### just some sort of analog
+## Current Status
 
-#### BIG PLANS:
+**Phase 1 in progress.** Working process scanner that reads `/proc`, parses process data (name, state, TracerPid), and detects suspicious activity.
 
-1. Make a working anti-cheat on c/rust
+### What works now:
+- Scan all running processes via `/proc`
+- Parse `/proc/{PID}/status` (name, state, TracerPid)
+- Detect processes being traced/debugged (TracerPid != 0)
+- Suspicious process detection by name patterns and status
 
-2. Make a working frontend on whatever technology
+## Roadmap
 
-3. Add some advertising
+### Phase 1: Process Monitoring (current)
+- [x] Scan `/proc` for all running PIDs
+- [x] Parse `/proc/{PID}/status` — name, state, TracerPid
+- [x] Basic suspicion detection (name, status, TracerPid)
+- [ ] Live TracerPid detection test (attach debugger, verify Vigil catches it)
+- [ ] Parse `/proc/{PID}/maps` — detect injected/suspicious shared libraries
+- [ ] Parse `/proc/{PID}/cmdline` — detect suspicious launch arguments
+- [ ] Parse `/proc/{PID}/exe` — verify executable path legitimacy
+- [ ] Continuous monitoring loop (scan every N seconds, detect changes)
+- [ ] Process birth/death tracking (detect new processes appearing mid-game)
 
-4. buy super duper cool servers
+### Phase 2: Memory & File Integrity
+- [ ] Monitor `/proc/{PID}/mem` access patterns
+- [ ] Game file hash verification (detect modified game files)
+- [ ] Detect LD_PRELOAD injection (common cheat technique on Linux)
+- [ ] Detect ptrace-based memory reading
+- [ ] Monitor `/proc/{PID}/fd` — detect suspicious file descriptors
 
-5. maybe windows release for fun
+### Phase 3: System-Level Detection
+- [ ] Kernel module detection (`/proc/modules`) — detect rootkit-style cheats
+- [ ] dmesg log monitoring for suspicious kernel activity
+- [ ] Network traffic analysis — detect cheat communication with external servers
+- [ ] Detect known cheat signatures (hash database)
+- [ ] Sandboxing detection (is the game running in a compromised environment?)
 
-realistic plans:
-get some knowledge about working with a linux kernel
+### Phase 4: Daemon & Service
+- [ ] Run Vigil as a systemd service/daemon
+- [ ] Configuration file (what game to protect, scan interval, rules)
+- [ ] Logging system (write scan results to files, timestamps)
+- [ ] CLI interface (start/stop monitoring, show status, show suspicious processes)
+- [ ] Signal handling (graceful shutdown)
 
-test some things with dmesg maybe like tracking things that are being opened
+### Phase 5: Reporting & Backend
+- [ ] Local report generation (JSON/structured output)
+- [ ] Server communication — send scan results to backend
+- [ ] REST API backend (Rust or separate service)
+- [ ] Player verification system (is this player running Vigil?)
+- [ ] Match integrity reports
 
-look for any cheats that work on linux (free i hope)
+### Phase 6: Frontend & Platform
+- [ ] Web dashboard — view scan reports, player status
+- [ ] Admin panel — manage rules, review flagged players
+- [ ] Player-facing client UI (system tray or terminal UI)
+- [ ] Account system and authentication
 
-test some real cheats and how do they work on linux
+### Phase 7: Advanced (long-term)
+- [ ] Custom kernel module for deeper monitoring (requires unsafe Rust / C)
+- [ ] Machine learning for behavior analysis (mouse patterns, aim patterns)
+- [ ] Community rule database (crowdsourced cheat signatures)
+- [ ] Game developer SDK/API integration
+- [ ] Windows port (maybe, for fun)
 
-write a half working backend for testing
+## Tech Stack
 
-ask valve or something for work together maybe if that will help or needed
+- **Language:** Rust
+- **Target OS:** Linux (primary), Windows (future maybe)
+- **Detection methods:** `/proc` filesystem, ptrace monitoring, file integrity, memory analysis
+- **Backend:** TBD (Rust with Actix/Axum or separate service)
+- **Frontend:** TBD (React/Next.js likely)
+
+## Project Structure
+
+```
+src/
+  main.rs        — entry point, scan orchestration
+  process.rs     — Proc struct, ProcessStatus enum, Suspicious trait
+  scanner.rs     — scan_processes(), get_process() — reads /proc
+```
+
+## How cheats work on Linux (research notes)
+
+- **Memory reading:** Cheats use ptrace or /proc/PID/mem to read game memory (player positions, health). Detected via TracerPid.
+- **Library injection:** LD_PRELOAD or dlopen to inject code into game process. Detected via /proc/PID/maps.
+- **File modification:** Replacing game textures/shaders for wallhack. Detected via file hash verification.
+- **Kernel modules:** Rootkit-style cheats that hide from userspace. Detected via /proc/modules monitoring.
+
+## Building
+
+```
+cargo build
+cargo run
+```
+
+Requires Linux. Reads `/proc` filesystem — some process info may require elevated permissions.

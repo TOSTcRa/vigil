@@ -61,20 +61,26 @@
   "hotPaths": [
     {
       "path": "src/scanner.rs",
-      "accessCount": 2,
-      "lastAccessed": 1771526655760,
+      "accessCount": 3,
+      "lastAccessed": 1771533135650,
       "type": "file"
     },
     {
       "path": "src/main.rs",
-      "accessCount": 2,
-      "lastAccessed": 1771526741882,
+      "accessCount": 3,
+      "lastAccessed": 1771533136770,
       "type": "file"
     },
     {
       "path": "src/process.rs",
-      "accessCount": 1,
-      "lastAccessed": 1771526655351,
+      "accessCount": 2,
+      "lastAccessed": 1771533136223,
+      "type": "file"
+    },
+    {
+      "path": "README.MD",
+      "accessCount": 2,
+      "lastAccessed": 1771533168711,
       "type": "file"
     }
   ],

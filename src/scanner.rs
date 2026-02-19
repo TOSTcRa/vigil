@@ -1,5 +1,5 @@
 use crate::process::{Proc, ProcessStatus};
-
+// scans processes and returns a vector of pids
 pub fn scan_processes() -> std::io::Result<Vec<u64>> {
     let mut res = vec![];
     for entry in std::fs::read_dir("/proc/")? {
@@ -18,7 +18,7 @@ pub fn scan_processes() -> std::io::Result<Vec<u64>> {
 
     Ok(res)
 }
-
+// get proccess from pid with needed data to change
 pub fn get_process(pid: u64) -> std::io::Result<Proc> {
     let mut name = String::new();
     let mut tracer_pid: u64 = 0;
