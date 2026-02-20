@@ -1,10 +1,15 @@
+// trait for checking if something is suspicious
+// any struct that implements this can be checked in the main loop
 pub trait Suspicious {
     fn is_suspicious(&self) -> bool;
 }
-// proc/pid/status structure
-// most importatnt for now is status and tracer_pid
-// if process has tracer_pid that is not equal to 0 it means that process is being changed or
-// debugged by other proccess
+
+// represents a linux process parsed from /proc/PID/status
+// fields are private on purpose — use getters to read, cant modify from outside
+// name = process name (like "sleep", "cs2", "strace")
+// pid = process id number
+// status = running/sleeping/stopped/zombie/suspicious
+// tracer_pid = if not 0 -> someone is debugging/tracing this process (cheats do this)
 #[derive(Debug)]
 pub struct Proc {
     name: String,
@@ -13,6 +18,9 @@ pub struct Proc {
     tracer_pid: u64,
 }
 
+// possible states from /proc/PID/status "State" field
+// Suspicious holds a string with the raw value when state is unknown
+// mapped from: R=Running, S/D/I=Sleeping, T/t=Stopped, Z=Zombie
 #[derive(Debug)]
 pub enum ProcessStatus {
     Running,
@@ -45,6 +53,10 @@ impl Proc {
     }
 }
 
+// a process is suspicious if:
+// 1. name contains "cheat" (basic name check, will improve later)
+// 2. status is unknown/weird (Suspicious variant)
+// 3. tracer_pid != 0 (someone is debugging it — main detection method rn)
 impl Suspicious for Proc {
     fn is_suspicious(&self) -> bool {
         self.name.contains("cheat")

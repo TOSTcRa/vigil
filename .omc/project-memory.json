@@ -62,8 +62,20 @@
   "hotPaths": [
     {
       "path": "src/main.rs",
+      "accessCount": 6,
+      "lastAccessed": 1771563406060,
+      "type": "file"
+    },
+    {
+      "path": "src/process.rs",
       "accessCount": 4,
-      "lastAccessed": 1771562556584,
+      "lastAccessed": 1771563427538,
+      "type": "file"
+    },
+    {
+      "path": "src/scanner.rs",
+      "accessCount": 3,
+      "lastAccessed": 1771563415214,
       "type": "file"
     }
   ],

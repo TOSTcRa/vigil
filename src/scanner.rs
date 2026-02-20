@@ -1,5 +1,8 @@
 use crate::process::{Proc, ProcessStatus};
-// scans processes and returns a vector of pids
+
+// reads /proc directory and collects all numeric folder names (those are PIDs)
+// non-numeric entries (like /proc/cpuinfo, /proc/net) are skipped
+// returns vec of pids or io error if /proc cant be read
 pub fn scan_processes() -> std::io::Result<Vec<u64>> {
     let mut res = vec![];
     for entry in std::fs::read_dir("/proc/")? {
@@ -18,7 +21,10 @@ pub fn scan_processes() -> std::io::Result<Vec<u64>> {
 
     Ok(res)
 }
-// get proccess from pid with needed data to change
+// parses /proc/PID/status file and builds a Proc struct from it
+// grabs: Name (process name), State (R/S/T/Z etc), TracerPid (0 = nobody tracing)
+// if status file cant be read (process died between scan and read) -> returns io error
+// state mapping: R=running, S/D/I=sleeping, T/t=stopped, Z=zombie, anything else=suspicious
 pub fn get_process(pid: u64) -> std::io::Result<Proc> {
     let mut name = String::new();
     let mut tracer_pid: u64 = 0;

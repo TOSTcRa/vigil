@@ -10,13 +10,18 @@ use crate::{
 
 mod process;
 mod scanner;
-// main loop here
-// scans processes and prints suspicious
-// doesnt print anything twice if found
-// for tests:
-// sleep 1000 & -> returns pid
-// sudo strace -p returned_pid
-// cargo run must print sleep process
+
+// main monitoring loop
+// scans all running processes every 5 sec via /proc
+// if process is suspicious (traced, weird status, name contains "cheat") -> print it
+// found set = already printed pids, so we dont spam same alert
+// if process was suspicious but now its fine -> remove from found (auto cleanup)
+//
+// how to test:
+// 1. sleep 1000 &        <- starts a dummy process, returns pid
+// 2. sudo strace -p PID  <- attaches debugger to it (sets TracerPid)
+// 3. cargo run            <- vigil should catch and print the sleep process
+// 4. ctrl+c strace        <- TracerPid goes back to 0, vigil removes it from found
 fn main() {
     let mut found: HashSet<u64> = collections::HashSet::new();
     loop {
