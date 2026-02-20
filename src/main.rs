@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     process::Suspicious,
-    scanner::{get_process, scan_processes},
+    scanner::{get_map, get_process, scan_processes},
 };
 
 mod process;
@@ -24,12 +24,22 @@ mod scanner;
 // 4. ctrl+c strace        <- TracerPid goes back to 0, vigil removes it from found
 fn main() {
     let mut found: HashSet<u64> = collections::HashSet::new();
+    let mut found_maps: HashSet<String> = collections::HashSet::new();
     loop {
         match scan_processes() {
             Ok(vec) => {
                 for pid in vec {
                     match get_process(pid) {
                         Ok(proc) => {
+                            match get_map(pid, &mut found_maps) {
+                                Ok(val) => {
+                                    if !val.is_empty() {
+                                        println!("{:?}", val)
+                                    }
+                                }
+                                Err(_) => {}
+                            };
+
                             if found.contains(&pid) && !proc.is_suspicious() {
                                 found.remove(&pid);
                             }

@@ -1,3 +1,5 @@
+use std::collections::{self, HashSet};
+
 use crate::process::{Proc, ProcessStatus};
 
 // reads /proc directory and collects all numeric folder names (those are PIDs)
@@ -55,6 +57,46 @@ pub fn get_process(pid: u64) -> std::io::Result<Proc> {
     }
 
     let res = Proc::new(name, pid, status, tracer_pid);
+
+    Ok(res)
+}
+
+// parses /proc/PID/maps and checks loaded .so libraries for suspicious stuff
+// returns only suspicious findings as (path, reason) tuples
+// two checks:
+// 1. library has both write and execute permissions (w+x) -> possible code injection
+// 2. library loaded from unusual dir (/tmp, /home, /dev/shm) -> possible LD_PRELOAD cheat
+// uses HashSet to avoid reporting same library twice
+pub fn get_map(
+    pid: u64,
+    found_maps: &mut HashSet<String>,
+) -> std::io::Result<Vec<(String, String)>> {
+    let mut res: Vec<(String, String)> = vec![];
+    let path = format!("/proc/{}/maps", pid);
+    let content = std::fs::read_to_string(path)?;
+    for line in content.lines() {
+        if !line.contains(".so") {
+            continue;
+        }
+        let splited: Vec<&str> = line.split_whitespace().collect();
+        if let Some(path) = splited.last() {
+            if !found_maps.contains(*path) {
+                if splited[1].contains("w") && splited[1].contains("x") {
+                    res.push((
+                        path.to_string(),
+                        String::from("Proces has w and x rights at the same time"),
+                    ));
+                }
+                if path.contains("/home/") || path.contains("/tmp/") || path.contains("/dev/shm/") {
+                    res.push((
+                        path.to_string(),
+                        String::from("Proces was launched from non standart dir"),
+                    ));
+                }
+                found_maps.insert(path.to_string());
+            }
+        }
+    }
 
     Ok(res)
 }
