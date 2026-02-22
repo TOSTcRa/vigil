@@ -77,6 +77,12 @@
       "accessCount": 2,
       "lastAccessed": 1771744727665,
       "type": "file"
+    },
+    {
+      "path": "README.MD",
+      "accessCount": 2,
+      "lastAccessed": 1771745363207,
+      "type": "file"
     }
   ],
   "userDirectives": []

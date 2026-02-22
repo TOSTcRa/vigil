@@ -6,13 +6,16 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
 ## Current Status
 
-**Phase 1 in progress.** Working process scanner that reads `/proc`, parses process data (name, state, TracerPid), and detects suspicious activity.
+**Phase 1 nearly complete.** Working process scanner with continuous monitoring, TracerPid detection, library injection detection, and LD_PRELOAD detection. All tested live.
 
 ### What works now:
 - Scan all running processes via `/proc`
 - Parse `/proc/{PID}/status` (name, state, TracerPid)
 - Detect processes being traced/debugged (TracerPid != 0)
-- Suspicious process detection by name patterns and status
+- Continuous monitoring loop (every 5 sec, deduplication, auto-cleanup)
+- Parse `/proc/{PID}/maps` — detect suspicious .so libraries (w+x permissions, unusual paths)
+- Parse `/proc/{PID}/environ` — detect LD_PRELOAD injection
+- Suspicious process detection by name patterns, status, TracerPid, and LD_PRELOAD
 
 ## Roadmap
 
@@ -20,26 +23,29 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - [x] Scan `/proc` for all running PIDs
 - [x] Parse `/proc/{PID}/status` — name, state, TracerPid
 - [x] Basic suspicion detection (name, status, TracerPid)
-- [ ] Live TracerPid detection test (attach debugger, verify Vigil catches it)
-- [ ] Parse `/proc/{PID}/maps` — detect injected/suspicious shared libraries
+- [x] Live TracerPid detection test (attach debugger, verify Vigil catches it)
+- [x] Continuous monitoring loop (scan every 5 seconds, dedup alerts, auto-cleanup)
+- [x] Parse `/proc/{PID}/maps` — detect injected/suspicious shared libraries
+- [x] Detect LD_PRELOAD injection via `/proc/{PID}/environ`
 - [ ] Parse `/proc/{PID}/cmdline` — detect suspicious launch arguments
 - [ ] Parse `/proc/{PID}/exe` — verify executable path legitimacy
-- [ ] Continuous monitoring loop (scan every N seconds, detect changes)
+- [ ] Whitelist for trusted paths (reduce false positives from nvim, rustc, etc.)
 - [ ] Process birth/death tracking (detect new processes appearing mid-game)
 
-### Phase 2: Memory & File Integrity
-- [ ] Monitor `/proc/{PID}/mem` access patterns
-- [ ] Game file hash verification (detect modified game files)
-- [ ] Detect LD_PRELOAD injection (common cheat technique on Linux)
-- [ ] Detect ptrace-based memory reading
-- [ ] Monitor `/proc/{PID}/fd` — detect suspicious file descriptors
+### Phase 2: Deep Process Inspection
+- [ ] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
+- [ ] Detect `process_vm_readv`/`process_vm_writev` usage (memory read/write without ptrace)
+- [ ] Parent process tracking (PPid) — detect suspicious process trees
+- [ ] `/proc/modules` scanning — detect rootkit-style kernel modules
+- [ ] Detect known cheat signatures (hash database)
+- [ ] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 
 ### Phase 3: System-Level Detection
-- [ ] Kernel module detection (`/proc/modules`) — detect rootkit-style cheats
 - [ ] dmesg log monitoring for suspicious kernel activity
 - [ ] Network traffic analysis — detect cheat communication with external servers
-- [ ] Detect known cheat signatures (hash database)
+- [ ] Game file hash verification (detect modified game files)
 - [ ] Sandboxing detection (is the game running in a compromised environment?)
+- [ ] inotify watching for suspicious file changes in game directories
 
 ### Phase 4: Daemon & Service
 - [ ] Run Vigil as a systemd service/daemon
@@ -51,7 +57,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 ### Phase 5: Reporting & Backend
 - [ ] Local report generation (JSON/structured output)
 - [ ] Server communication — send scan results to backend
-- [ ] REST API backend (Rust or separate service)
+- [ ] REST API backend (Rust with Actix/Axum)
 - [ ] Player verification system (is this player running Vigil?)
 - [ ] Match integrity reports
 
@@ -72,23 +78,24 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
 - **Language:** Rust
 - **Target OS:** Linux (primary), Windows (future maybe)
-- **Detection methods:** `/proc` filesystem, ptrace monitoring, file integrity, memory analysis
-- **Backend:** TBD (Rust with Actix/Axum or separate service)
+- **Detection methods:** `/proc` filesystem, ptrace monitoring, library injection, LD_PRELOAD, memory analysis
+- **Backend:** TBD (Rust with Actix/Axum)
 - **Frontend:** TBD (React/Next.js likely)
 
 ## Project Structure
 
 ```
 src/
-  main.rs        — entry point, scan orchestration
+  main.rs        — entry point, monitoring loop, alert deduplication
   process.rs     — Proc struct, ProcessStatus enum, Suspicious trait
-  scanner.rs     — scan_processes(), get_process() — reads /proc
+  scanner.rs     — scan_processes(), get_process(), get_map(), check_preload()
 ```
 
 ## How cheats work on Linux (research notes)
 
 - **Memory reading:** Cheats use ptrace or /proc/PID/mem to read game memory (player positions, health). Detected via TracerPid.
-- **Library injection:** LD_PRELOAD or dlopen to inject code into game process. Detected via /proc/PID/maps.
+- **Library injection:** LD_PRELOAD or dlopen to inject code into game process. Detected via /proc/PID/maps and /proc/PID/environ.
+- **Memory manipulation:** process_vm_readv/writev to read/write memory without ptrace. Harder to detect.
 - **File modification:** Replacing game textures/shaders for wallhack. Detected via file hash verification.
 - **Kernel modules:** Rootkit-style cheats that hide from userspace. Detected via /proc/modules monitoring.
 

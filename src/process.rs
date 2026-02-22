@@ -65,15 +65,12 @@ impl Proc {
 // 1. name contains "cheat" (basic name check, will improve later)
 // 2. status is unknown/weird (Suspicious variant)
 // 3. tracer_pid != 0 (someone is debugging it — main detection method rn)
-// 4. method has some LD_PRELOAD
+// 4. has some LD_PRELOAD
 impl Suspicious for Proc {
     fn is_suspicious(&self) -> bool {
         self.name.contains("cheat")
-            || match self.status {
-                ProcessStatus::Suspicious(_) => true,
-                _ => false,
-            }
             || self.tracer_pid != 0
             || self.preload_path.is_some()
+            || matches!(self.status, ProcessStatus::Suspicious(_))
     }
 }
