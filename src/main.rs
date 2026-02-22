@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     process::Suspicious,
-    scanner::{check_preload, get_map, get_process, scan_processes},
+    scanner::{get_map, get_process, get_whitelist, scan_processes},
 };
 
 mod process;
@@ -25,11 +25,12 @@ mod scanner;
 fn main() {
     let mut found: HashSet<u64> = collections::HashSet::new();
     let mut found_maps: HashSet<String> = collections::HashSet::new();
+    let whitelist = get_whitelist().unwrap_or_default();
     loop {
         if let Ok(vec) = scan_processes() {
             for pid in vec {
-                if let Ok(proc) = get_process(pid) {
-                    if let Ok(val) = get_map(pid, &mut found_maps)
+                if let Ok(proc) = get_process(pid, &whitelist) {
+                    if let Ok(val) = get_map(pid, &mut found_maps, &whitelist)
                         && !val.is_empty()
                     {
                         println!("{:?}", val);

@@ -26,7 +26,7 @@ pub fn scan_processes() -> std::io::Result<Vec<u64>> {
 // grabs: Name (process name), State (R/S/T/Z etc), TracerPid (0 = nobody tracing)
 // if status file cant be read (process died between scan and read) -> returns io error
 // state mapping: R=running, S/D/I=sleeping, T/t=stopped, Z=zombie, anything else=suspicious
-pub fn get_process(pid: u64) -> std::io::Result<Proc> {
+pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
     let mut name = String::new();
     let mut tracer_pid: u64 = 0;
     let mut status = ProcessStatus::Suspicious(String::from("Status not found"));
@@ -59,9 +59,17 @@ pub fn get_process(pid: u64) -> std::io::Result<Proc> {
         }
     }
 
-    let preload_path = check_preload(pid)?;
+    let preload_path = check_preload(pid, whitelist)?;
+    let cmdline = get_cmdline(pid)?;
 
-    Ok(Proc::new(name, pid, status, tracer_pid, preload_path))
+    Ok(Proc::new(
+        name,
+        pid,
+        status,
+        tracer_pid,
+        preload_path,
+        cmdline,
+    ))
 }
 
 // parses /proc/PID/maps and checks loaded .so libraries for suspicious stuff
@@ -73,6 +81,7 @@ pub fn get_process(pid: u64) -> std::io::Result<Proc> {
 pub fn get_map(
     pid: u64,
     found_maps: &mut HashSet<String>,
+    whitelist: &[String],
 ) -> std::io::Result<Vec<(String, String)>> {
     let mut res: Vec<(String, String)> = vec![];
     let path = format!("/proc/{}/maps", pid);
@@ -85,6 +94,13 @@ pub fn get_map(
         if let Some(path) = splited.last()
             && !found_maps.contains(*path)
         {
+            if whitelist
+                .iter()
+                .any(|whitelist_item| path.contains(whitelist_item))
+            {
+                found_maps.insert(path.to_string());
+                continue;
+            }
             if splited[1].contains("w") && splited[1].contains("x") {
                 res.push((
                     path.to_string(),
@@ -104,7 +120,7 @@ pub fn get_map(
     Ok(res)
 }
 
-pub fn check_preload(pid: u64) -> std::io::Result<Option<String>> {
+pub fn check_preload(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>> {
     let path = format!("/proc/{}/environ", pid);
     let content = std::fs::read_to_string(path)?;
     let splited: Vec<&str> = content.split('\0').collect();
@@ -112,9 +128,33 @@ pub fn check_preload(pid: u64) -> std::io::Result<Option<String>> {
         if let Some((key, value)) = line.split_once("=")
             && key == "LD_PRELOAD"
         {
-            return Ok(Some(value.to_string()));
+            let is_whitelisted = whitelist
+                .iter()
+                .any(|whitelist_item| value.contains(whitelist_item));
+
+            if !is_whitelisted {
+                return Ok(Some(value.to_string()));
+            }
         }
     }
 
     Ok(None)
+}
+
+pub fn get_cmdline(pid: u64) -> std::io::Result<String> {
+    let path = format!("/proc/{}/cmdline", pid);
+    let content = std::fs::read_to_string(path)?;
+    Ok(content.replace('\0', " "))
+}
+
+pub fn get_whitelist() -> std::io::Result<Vec<String>> {
+    let mut res: Vec<String> = vec![];
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = format!("{}/.config/vigil/whitelist.txt", home);
+    let content = std::fs::read_to_string(path)?;
+    for line in content.lines() {
+        res.push(line.to_string());
+    }
+
+    Ok(res)
 }

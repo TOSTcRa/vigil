@@ -17,6 +17,7 @@ pub struct Proc {
     status: ProcessStatus,
     tracer_pid: u64,
     preload_path: Option<String>,
+    cmdline: String,
 }
 
 // possible states from /proc/PID/status "State" field
@@ -38,6 +39,7 @@ impl Proc {
         status: ProcessStatus,
         tracer_pid: u64,
         preload_path: Option<String>,
+        cmdline: String,
     ) -> Self {
         Self {
             name,
@@ -45,6 +47,7 @@ impl Proc {
             status,
             tracer_pid,
             preload_path,
+            cmdline,
         }
     }
 
@@ -71,6 +74,9 @@ impl Suspicious for Proc {
         self.name.contains("cheat")
             || self.tracer_pid != 0
             || self.preload_path.is_some()
+            || self.cmdline.contains("gdb")
+            || self.cmdline.contains("strace")
+            || self.cmdline.contains("ltrace")
             || matches!(self.status, ProcessStatus::Suspicious(_))
     }
 }

@@ -62,20 +62,20 @@
   "hotPaths": [
     {
       "path": "src/main.rs",
-      "accessCount": 3,
-      "lastAccessed": 1771744866925,
+      "accessCount": 5,
+      "lastAccessed": 1771748862611,
       "type": "file"
     },
     {
       "path": "src/process.rs",
-      "accessCount": 3,
-      "lastAccessed": 1771744885371,
+      "accessCount": 4,
+      "lastAccessed": 1771746813096,
       "type": "file"
     },
     {
       "path": "src/scanner.rs",
-      "accessCount": 2,
-      "lastAccessed": 1771744727665,
+      "accessCount": 4,
+      "lastAccessed": 1771748862224,
       "type": "file"
     },
     {
@@ -83,6 +83,12 @@
       "accessCount": 2,
       "lastAccessed": 1771745363207,
       "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 1,
+      "lastAccessed": 1771746886230,
+      "type": "directory"
     }
   ],
   "userDirectives": []
