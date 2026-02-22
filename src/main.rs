@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     process::Suspicious,
-    scanner::{get_map, get_process, scan_processes},
+    scanner::{check_preload, get_map, get_process, scan_processes},
 };
 
 mod process;
@@ -26,34 +26,27 @@ fn main() {
     let mut found: HashSet<u64> = collections::HashSet::new();
     let mut found_maps: HashSet<String> = collections::HashSet::new();
     loop {
-        match scan_processes() {
-            Ok(vec) => {
-                for pid in vec {
-                    match get_process(pid) {
-                        Ok(proc) => {
-                            match get_map(pid, &mut found_maps) {
-                                Ok(val) => {
-                                    if !val.is_empty() {
-                                        println!("{:?}", val)
-                                    }
-                                }
-                                Err(_) => {}
-                            };
+        if let Ok(vec) = scan_processes() {
+            for pid in vec {
+                if let Ok(proc) = get_process(pid) {
+                    if let Ok(val) = get_map(pid, &mut found_maps)
+                        && !val.is_empty()
+                    {
+                        println!("{:?}", val);
+                    }
 
-                            if found.contains(&pid) && !proc.is_suspicious() {
-                                found.remove(&pid);
-                            }
-                            if proc.is_suspicious() && !found.contains(&pid) {
-                                println!("{:?}", proc);
-                                found.insert(pid);
-                            }
-                        }
-                        Err(_) => {}
-                    };
+                    if found.contains(&pid) && !proc.is_suspicious() {
+                        found.remove(&pid);
+                    }
+
+                    if proc.is_suspicious() && !found.contains(&pid) {
+                        println!("{:?}", proc);
+                        found.insert(pid);
+                    }
                 }
             }
-            Err(_) => {}
         }
+
         thread::sleep(time::Duration::from_secs(5));
     }
 }

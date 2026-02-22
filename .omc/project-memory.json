@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1771558437060,
+  "lastScanned": 1771708682440,
   "projectRoot": "/home/tostcr/Dreams/vigil",
   "techStack": {
     "languages": [
@@ -44,7 +44,7 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 3,
-      "lastAccessed": 1771558437047,
+      "lastAccessed": 1771708682427,
       "keyFiles": [
         "main.rs",
         "process.rs",
@@ -55,27 +55,27 @@
       "path": "target",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771558437050,
+      "lastAccessed": 1771708682436,
       "keyFiles": []
     }
   },
   "hotPaths": [
     {
       "path": "src/main.rs",
-      "accessCount": 8,
-      "lastAccessed": 1771585434405,
-      "type": "file"
-    },
-    {
-      "path": "src/scanner.rs",
-      "accessCount": 6,
-      "lastAccessed": 1771585433828,
+      "accessCount": 3,
+      "lastAccessed": 1771744866925,
       "type": "file"
     },
     {
       "path": "src/process.rs",
-      "accessCount": 4,
-      "lastAccessed": 1771563427538,
+      "accessCount": 3,
+      "lastAccessed": 1771744885371,
+      "type": "file"
+    },
+    {
+      "path": "src/scanner.rs",
+      "accessCount": 2,
+      "lastAccessed": 1771744727665,
       "type": "file"
     }
   ],

@@ -16,6 +16,7 @@ pub struct Proc {
     pid: u64,
     status: ProcessStatus,
     tracer_pid: u64,
+    preload_path: Option<String>,
 }
 
 // possible states from /proc/PID/status "State" field
@@ -31,12 +32,19 @@ pub enum ProcessStatus {
 }
 
 impl Proc {
-    pub fn new(name: String, pid: u64, status: ProcessStatus, tracer_pid: u64) -> Self {
+    pub fn new(
+        name: String,
+        pid: u64,
+        status: ProcessStatus,
+        tracer_pid: u64,
+        preload_path: Option<String>,
+    ) -> Self {
         Self {
             name,
             pid,
             status,
             tracer_pid,
+            preload_path,
         }
     }
 
@@ -57,6 +65,7 @@ impl Proc {
 // 1. name contains "cheat" (basic name check, will improve later)
 // 2. status is unknown/weird (Suspicious variant)
 // 3. tracer_pid != 0 (someone is debugging it — main detection method rn)
+// 4. method has some LD_PRELOAD
 impl Suspicious for Proc {
     fn is_suspicious(&self) -> bool {
         self.name.contains("cheat")
@@ -65,5 +74,6 @@ impl Suspicious for Proc {
                 _ => false,
             }
             || self.tracer_pid != 0
+            || self.preload_path.is_some()
     }
 }
