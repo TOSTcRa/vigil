@@ -1,7 +1,4 @@
-use std::{
-    collections::{self, HashSet},
-    thread, time,
-};
+use std::{collections::HashSet, thread, time::Duration};
 
 use crate::{
     process::Suspicious,
@@ -11,11 +8,12 @@ use crate::{
 mod process;
 mod scanner;
 
-// main monitoring loop
+// main monitoring loop — vigil anti-cheat core
 // scans all running processes every 5 sec via /proc
-// if process is suspicious (traced, weird status, name contains "cheat") -> print it
-// found set = already printed pids, so we dont spam same alert
-// if process was suspicious but now its fine -> remove from found (auto cleanup)
+// 5 detection methods: TracerPid, maps (w+x / suspicious dirs), LD_PRELOAD, cmdline debuggers, name check
+// found = already alerted pids (dedup), found_maps = already checked .so paths (dedup)
+// whitelist = trusted path patterns from ~/.config/vigil/whitelist.txt
+// if process was suspicious but now its fine -> auto-remove from found (cleanup)
 //
 // how to test:
 // 1. sleep 1000 &        <- starts a dummy process, returns pid
@@ -23,12 +21,17 @@ mod scanner;
 // 3. cargo run            <- vigil should catch and print the sleep process
 // 4. ctrl+c strace        <- TracerPid goes back to 0, vigil removes it from found
 fn main() {
-    let mut found: HashSet<u64> = collections::HashSet::new();
-    let mut found_maps: HashSet<String> = collections::HashSet::new();
+    let mut history: HashSet<u64> = HashSet::new();
+    let mut found: HashSet<u64> = HashSet::new();
+    let mut found_maps: HashSet<String> = HashSet::new();
+
     let whitelist = get_whitelist().unwrap_or_default();
+
+    let mut first_run = true;
+
     loop {
         if let Ok(vec) = scan_processes() {
-            for pid in vec {
+            for &pid in &vec {
                 if let Ok(proc) = get_process(pid, &whitelist) {
                     if let Ok(val) = get_map(pid, &mut found_maps, &whitelist)
                         && !val.is_empty()
@@ -44,10 +47,17 @@ fn main() {
                         println!("{:?}", proc);
                         found.insert(pid);
                     }
+
+                    if !history.contains(&pid) && !first_run {
+                        println!("A new process was born: \n{:?}", proc);
+                    }
                 }
             }
+
+            history = vec.into_iter().collect();
+            first_run = false;
         }
 
-        thread::sleep(time::Duration::from_secs(5));
+        thread::sleep(Duration::from_secs(5));
     }
 }

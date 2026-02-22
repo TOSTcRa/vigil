@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::process::{Proc, ProcessStatus};
 
 // reads /proc directory and collects all numeric folder names (those are PIDs)
@@ -22,9 +20,12 @@ pub fn scan_processes() -> std::io::Result<Vec<u64>> {
     Ok(res)
 }
 
-// parses /proc/PID/status file and builds a Proc struct from it
-// grabs: Name (process name), State (R/S/T/Z etc), TracerPid (0 = nobody tracing)
-// if status file cant be read (process died between scan and read) -> returns io error
+// builds a full Proc struct from multiple /proc/PID/* files:
+// 1. /proc/PID/status -> Name, State (R/S/T/Z etc), TracerPid
+// 2. /proc/PID/environ -> LD_PRELOAD detection (via check_preload)
+// 3. /proc/PID/cmdline -> launch arguments (via get_cmdline)
+// whitelist is passed through to check_preload for filtering trusted preloads
+// if any /proc file cant be read (process died mid-scan) -> returns io error
 // state mapping: R=running, S/D/I=sleeping, T/t=stopped, Z=zombie, anything else=suspicious
 pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
     let mut name = String::new();
@@ -61,6 +62,7 @@ pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
 
     let preload_path = check_preload(pid, whitelist)?;
     let cmdline = get_cmdline(pid)?;
+    let exe_path = get_exe(pid, whitelist)?;
 
     Ok(Proc::new(
         name,
@@ -69,6 +71,7 @@ pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
         tracer_pid,
         preload_path,
         cmdline,
+        exe_path,
     ))
 }
 
@@ -80,7 +83,7 @@ pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
 // uses HashSet to avoid reporting same library twice
 pub fn get_map(
     pid: u64,
-    found_maps: &mut HashSet<String>,
+    found_maps: &mut std::collections::HashSet<String>,
     whitelist: &[String],
 ) -> std::io::Result<Vec<(String, String)>> {
     let mut res: Vec<(String, String)> = vec![];
@@ -120,6 +123,11 @@ pub fn get_map(
     Ok(res)
 }
 
+// checks /proc/PID/environ for LD_PRELOAD variable
+// env vars are separated by null bytes (\0), each one is KEY=VALUE
+// if LD_PRELOAD found and path is NOT in whitelist -> returns Some(path)
+// if no LD_PRELOAD or its whitelisted -> returns None
+// called from get_process() so preload info is part of every Proc
 pub fn check_preload(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>> {
     let path = format!("/proc/{}/environ", pid);
     let content = std::fs::read_to_string(path)?;
@@ -141,12 +149,19 @@ pub fn check_preload(pid: u64, whitelist: &[String]) -> std::io::Result<Option<S
     Ok(None)
 }
 
+// reads /proc/PID/cmdline — the full command that launched the process
+// args are separated by null bytes, we replace them with spaces for readability
+// used in is_suspicious() to detect debugger tools (gdb, strace, ltrace)
 pub fn get_cmdline(pid: u64) -> std::io::Result<String> {
     let path = format!("/proc/{}/cmdline", pid);
     let content = std::fs::read_to_string(path)?;
     Ok(content.replace('\0', " "))
 }
 
+// loads trusted path patterns from ~/.config/vigil/whitelist.txt
+// each line is a pattern (like "/usr/lib/", ".config/", "libmozsandbox.so")
+// used by get_map and check_preload to skip known-safe libraries
+// if file doesnt exist -> unwrap_or_default() in main gives empty vec (no whitelist)
 pub fn get_whitelist() -> std::io::Result<Vec<String>> {
     let mut res: Vec<String> = vec![];
     let home = std::env::var("HOME").unwrap_or_default();
@@ -157,4 +172,21 @@ pub fn get_whitelist() -> std::io::Result<Vec<String>> {
     }
 
     Ok(res)
+}
+
+pub fn get_exe(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>> {
+    let path = format!("/proc/{}/exe", pid);
+    let content = std::fs::read_link(path)?;
+    let res = content.to_string_lossy().to_string();
+    let is_whitelisted = whitelist
+        .iter()
+        .any(|whitelist_item| res.contains(whitelist_item));
+
+    if !is_whitelisted
+        && (res.contains("/home/") || res.contains("/tmp/") || res.contains("/dev/shm/"))
+    {
+        return Ok(Some(res));
+    }
+
+    Ok(None)
 }

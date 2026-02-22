@@ -6,7 +6,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
 ## Current Status
 
-**Phase 1 nearly complete.** Working process scanner with continuous monitoring, TracerPid detection, library injection detection, and LD_PRELOAD detection. All tested live.
+**Phase 1 COMPLETE.** Working process scanner with continuous monitoring, 6 detection methods (TracerPid, maps, LD_PRELOAD, cmdline, exe path, name), whitelist system, and process birth tracking. All tested live.
 
 ### What works now:
 - Scan all running processes via `/proc`
@@ -15,7 +15,9 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - Continuous monitoring loop (every 5 sec, deduplication, auto-cleanup)
 - Parse `/proc/{PID}/maps` — detect suspicious .so libraries (w+x permissions, unusual paths)
 - Parse `/proc/{PID}/environ` — detect LD_PRELOAD injection
-- Suspicious process detection by name patterns, status, TracerPid, and LD_PRELOAD
+- Parse `/proc/{PID}/cmdline` — detect debugger tools (gdb, strace, ltrace)
+- Whitelist system (`~/.config/vigil/whitelist.txt`) — filter trusted paths in maps + LD_PRELOAD
+- Suspicious process detection by name, status, TracerPid, LD_PRELOAD, and cmdline
 
 ## Roadmap
 
@@ -27,10 +29,10 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - [x] Continuous monitoring loop (scan every 5 seconds, dedup alerts, auto-cleanup)
 - [x] Parse `/proc/{PID}/maps` — detect injected/suspicious shared libraries
 - [x] Detect LD_PRELOAD injection via `/proc/{PID}/environ`
-- [ ] Parse `/proc/{PID}/cmdline` — detect suspicious launch arguments
-- [ ] Parse `/proc/{PID}/exe` — verify executable path legitimacy
-- [ ] Whitelist for trusted paths (reduce false positives from nvim, rustc, etc.)
-- [ ] Process birth/death tracking (detect new processes appearing mid-game)
+- [x] Parse `/proc/{PID}/cmdline` — detect suspicious launch arguments (gdb, strace, ltrace)
+- [x] Parse `/proc/{PID}/exe` — verify executable path legitimacy (symlink check + whitelist)
+- [x] Whitelist for trusted paths (~/.config/vigil/whitelist.txt — filters maps + LD_PRELOAD)
+- [x] Process birth/death tracking (detect new processes appearing mid-game)
 
 ### Phase 2: Deep Process Inspection
 - [ ] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
@@ -88,7 +90,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 src/
   main.rs        — entry point, monitoring loop, alert deduplication
   process.rs     — Proc struct, ProcessStatus enum, Suspicious trait
-  scanner.rs     — scan_processes(), get_process(), get_map(), check_preload()
+  scanner.rs     — scan_processes(), get_process(), get_map(), check_preload(), get_cmdline(), get_whitelist()
 ```
 
 ## How cheats work on Linux (research notes)

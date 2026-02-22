@@ -4,12 +4,15 @@ pub trait Suspicious {
     fn is_suspicious(&self) -> bool;
 }
 
-// represents a linux process parsed from /proc/PID/status
-// fields are private on purpose — use getters to read, cant modify from outside
+// represents a linux process built from multiple /proc/PID/* files
+// status gives name + state + TracerPid, environ gives LD_PRELOAD, cmdline gives launch args
+// fields are private — use getters to read, cant modify from outside
 // name = process name (like "sleep", "cs2", "strace")
 // pid = process id number
 // status = running/sleeping/stopped/zombie/suspicious
 // tracer_pid = if not 0 -> someone is debugging/tracing this process (cheats do this)
+// preload_path = Some(path) if process has LD_PRELOAD set (library injection)
+// cmdline = full command line args (for detecting debugger tools)
 #[derive(Debug)]
 pub struct Proc {
     name: String,
@@ -18,6 +21,7 @@ pub struct Proc {
     tracer_pid: u64,
     preload_path: Option<String>,
     cmdline: String,
+    exe_path: Option<String>,
 }
 
 // possible states from /proc/PID/status "State" field
@@ -40,6 +44,7 @@ impl Proc {
         tracer_pid: u64,
         preload_path: Option<String>,
         cmdline: String,
+        exe_path: Option<String>,
     ) -> Self {
         Self {
             name,
@@ -48,6 +53,7 @@ impl Proc {
             tracer_pid,
             preload_path,
             cmdline,
+            exe_path,
         }
     }
 
@@ -64,11 +70,12 @@ impl Proc {
     }
 }
 
-// a process is suspicious if:
+// a process is suspicious if any of these is true:
 // 1. name contains "cheat" (basic name check, will improve later)
-// 2. status is unknown/weird (Suspicious variant)
-// 3. tracer_pid != 0 (someone is debugging it — main detection method rn)
-// 4. has some LD_PRELOAD
+// 2. tracer_pid != 0 (someone is debugging/tracing it)
+// 3. has LD_PRELOAD set (preload_path.is_some() = library injection)
+// 4. cmdline contains gdb/strace/ltrace (debugger tools attached)
+// 5. status is unknown/weird (Suspicious variant from /proc parsing)
 impl Suspicious for Proc {
     fn is_suspicious(&self) -> bool {
         self.name.contains("cheat")
@@ -77,6 +84,7 @@ impl Suspicious for Proc {
             || self.cmdline.contains("gdb")
             || self.cmdline.contains("strace")
             || self.cmdline.contains("ltrace")
+            || self.exe_path.is_some()
             || matches!(self.status, ProcessStatus::Suspicious(_))
     }
 }
