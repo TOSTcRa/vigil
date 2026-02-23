@@ -35,7 +35,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - [x] Process birth/death tracking (detect new processes appearing mid-game)
 
 ### Phase 2: Deep Process Inspection
-- [ ] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
+- [x] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
 - [ ] Detect `process_vm_readv`/`process_vm_writev` usage (memory read/write without ptrace)
 - [ ] Parent process tracking (PPid) — detect suspicious process trees
 - [ ] `/proc/modules` scanning — detect rootkit-style kernel modules

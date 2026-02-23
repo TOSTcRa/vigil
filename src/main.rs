@@ -2,7 +2,7 @@ use std::{collections::HashSet, thread, time::Duration};
 
 use crate::{
     process::Suspicious,
-    scanner::{get_map, get_process, get_whitelist, scan_processes},
+    scanner::{get_fd, get_map, get_process, get_whitelist, scan_processes},
 };
 
 mod process;
@@ -37,6 +37,12 @@ fn main() {
                         && !val.is_empty()
                     {
                         println!("{:?}", val);
+                    }
+
+                    if let Ok(val) = get_fd(pid)
+                        && !val.is_empty()
+                    {
+                        println!("Process {}, reading other process memory: {:?}", pid, val);
                     }
 
                     if found.contains(&pid) && !proc.is_suspicious() {

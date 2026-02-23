@@ -158,14 +158,13 @@ pub fn get_cmdline(pid: u64) -> std::io::Result<String> {
     Ok(content.replace('\0', " "))
 }
 
-// loads trusted path patterns from ~/.config/vigil/whitelist.txt
+// loads trusted path patterns from /etc/vigil/whitelist.txt
 // each line is a pattern (like "/usr/lib/", ".config/", "libmozsandbox.so")
 // used by get_map and check_preload to skip known-safe libraries
 // if file doesnt exist -> unwrap_or_default() in main gives empty vec (no whitelist)
 pub fn get_whitelist() -> std::io::Result<Vec<String>> {
     let mut res: Vec<String> = vec![];
-    let home = std::env::var("HOME").unwrap_or_default();
-    let path = format!("{}/.config/vigil/whitelist.txt", home);
+    let path = "/etc/vigil/whitelist.txt";
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         res.push(line.to_string());
@@ -189,4 +188,30 @@ pub fn get_exe(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>
     }
 
     Ok(None)
+}
+
+pub fn get_fd(pid: u64) -> std::io::Result<Vec<u64>> {
+    let path = format!("/proc/{}/fd", pid);
+    let dir = std::fs::read_dir(path)?;
+    let mut res: Vec<u64> = vec![];
+    for entry in dir {
+        let entry = entry?;
+        let content = std::fs::read_link(entry.path())?;
+        let symlink = content.to_string_lossy();
+
+        if symlink.starts_with("/proc/") && symlink.ends_with("/mem") {
+            for item in symlink.split('/') {
+                if item.is_empty() {
+                    continue;
+                }
+
+                if let Ok(num) = item.parse::<u64>()
+                    && num != pid
+                {
+                    res.push(num);
+                }
+            }
+        }
+    }
+    Ok(res)
 }
