@@ -4,6 +4,12 @@ use aya::programs::TracePoint;
 use aya::util::online_cpus;
 use bytes::BytesMut;
 use vigil_common::SyscallEvent;
+
+// loads compiled BPF bytecode from target dir, attaches tracepoint to sys_enter_process_vm_readv
+// returns Ebpf object — MUST be kept alive in main, otherwise BPF unloads from kernel (ownership)
+// program_mut("get_syscall") = BPF function name, try_into() casts to TracePoint type
+// needs sudo — loading BPF into kernel requires root
+// BPF must be compiled with --release (dev profile produces invalid bytecode for kernel verifier)
 pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     let bytes = std::fs::read("./target/bpfel-unknown-none/release/vigil")?;
     let mut ebpf = Ebpf::load(&bytes)?;
@@ -15,6 +21,9 @@ pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     Ok(ebpf)
 }
 
+// extracts EVENTS PerfEventArray map from loaded BPF program
+// take_map = removes map from Ebpf (ownership transfer), try_into casts to AsyncPerfEventArray
+// async version needed for tokio-based event reading
 pub fn get_events(
     ebpf: &mut Ebpf,
 ) -> Result<AsyncPerfEventArray<MapData>, Box<dyn std::error::Error>> {
@@ -24,6 +33,13 @@ pub fn get_events(
     Ok(map_data)
 }
 
+// reads BPF events in background — one tokio::spawn per CPU for parallel reading
+// each CPU has its own perf buffer, events arrive independently
+// inside each spawn: infinite loop reading events, parsing raw bytes to SyscallEvent
+// bytes_buff = vec of 10 BytesMut buffers (multiple events can arrive at once)
+// ev.read = how many events were read this batch
+// unsafe read_unaligned: raw bytes -> SyscallEvent via pointer cast (repr(C) guarantees layout)
+// runs in background — returns Ok(()) immediately, spawned tasks keep reading
 pub async fn read_events(
     perf_array: &mut AsyncPerfEventArray<MapData>,
 ) -> Result<(), Box<dyn std::error::Error>> {

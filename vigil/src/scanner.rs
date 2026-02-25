@@ -173,6 +173,11 @@ pub fn get_whitelist() -> std::io::Result<Vec<String>> {
     Ok(res)
 }
 
+// reads /proc/PID/exe symlink — points to the real binary path
+// read_link returns PathBuf, to_string_lossy converts to String
+// checks: if path is NOT whitelisted AND in suspicious dir (/home, /tmp, /dev/shm) -> Some(path)
+// otherwise returns None (safe binary)
+// exe shows real binary path even if process was renamed — cheater cant hide
 pub fn get_exe(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>> {
     let path = format!("/proc/{}/exe", pid);
     let content = std::fs::read_link(path)?;
@@ -190,6 +195,11 @@ pub fn get_exe(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>
     Ok(None)
 }
 
+// reads /proc/PID/fd directory — each entry is a symlink to an open file
+// checks if any symlink points to /proc/*/mem (another process memory)
+// filters self-reads (num != pid) — process reading its own mem is normal
+// returns vec of victim PIDs whose memory is being read
+// needs root to read other processes fd dirs
 pub fn get_fd(pid: u64) -> std::io::Result<Vec<u64>> {
     let path = format!("/proc/{}/fd", pid);
     let dir = std::fs::read_dir(path)?;

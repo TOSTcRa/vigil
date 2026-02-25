@@ -6,7 +6,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
 ## Current Status
 
-**Phase 1 COMPLETE.** Working process scanner with continuous monitoring, 6 detection methods (TracerPid, maps, LD_PRELOAD, cmdline, exe path, name), whitelist system, and process birth tracking. All tested live.
+**Phase 2 IN PROGRESS.** Working process scanner with continuous monitoring, 6 detection methods, whitelist system, process birth tracking, fd monitoring, and eBPF kernel-level syscall interception. All tested live.
 
 ### What works now:
 - Scan all running processes via `/proc`
@@ -16,8 +16,12 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - Parse `/proc/{PID}/maps` — detect suspicious .so libraries (w+x permissions, unusual paths)
 - Parse `/proc/{PID}/environ` — detect LD_PRELOAD injection
 - Parse `/proc/{PID}/cmdline` — detect debugger tools (gdb, strace, ltrace)
-- Whitelist system (`~/.config/vigil/whitelist.txt`) — filter trusted paths in maps + LD_PRELOAD
-- Suspicious process detection by name, status, TracerPid, LD_PRELOAD, and cmdline
+- Parse `/proc/{PID}/exe` — detect binaries from suspicious dirs (symlink check + whitelist)
+- Monitor `/proc/{PID}/fd` — detect processes reading other processes memory via /proc/*/mem
+- Whitelist system (`/etc/vigil/whitelist.txt`) — filter trusted paths in maps, LD_PRELOAD, and exe
+- Process birth tracking — detect new processes appearing mid-game
+- eBPF tracepoint — kernel-level interception of `process_vm_readv` syscall in real time
+- Async event reading via tokio — BPF events processed in background, /proc scan in main loop
 
 ## Roadmap
 
@@ -36,7 +40,8 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
 ### Phase 2: Deep Process Inspection
 - [x] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
-- [ ] Detect `process_vm_readv`/`process_vm_writev` usage (memory read/write without ptrace)
+- [x] Detect `process_vm_readv` usage via eBPF tracepoint (kernel-level, real-time)
+- [ ] Detect `process_vm_writev` usage via eBPF tracepoint (memory write without ptrace)
 - [ ] Parent process tracking (PPid) — detect suspicious process trees
 - [ ] `/proc/modules` scanning — detect rootkit-style kernel modules
 - [ ] Detect known cheat signatures (hash database)
@@ -80,17 +85,27 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 
 - **Language:** Rust
 - **Target OS:** Linux (primary), Windows (future maybe)
-- **Detection methods:** `/proc` filesystem, ptrace monitoring, library injection, LD_PRELOAD, memory analysis
+- **Detection methods:** `/proc` filesystem, ptrace monitoring, library injection, LD_PRELOAD, eBPF syscall tracing
+- **Async runtime:** tokio (for eBPF event reading)
+- **eBPF:** aya + aya-ebpf (Rust-native BPF framework)
 - **Backend:** TBD (Rust with Actix/Axum)
-- **Frontend:** TBD (React/Next.js likely)
+- **Frontend:** TBD (pure Rust with egui)
 
 ## Project Structure
 
 ```
-src/
-  main.rs        — entry point, monitoring loop, alert deduplication
-  process.rs     — Proc struct, ProcessStatus enum, Suspicious trait
-  scanner.rs     — scan_processes(), get_process(), get_map(), check_preload(), get_cmdline(), get_whitelist()
+vigil/                 — userspace binary (cargo workspace)
+  src/
+    main.rs            — entry point, async main, eBPF init + /proc monitoring loop
+    process.rs         — Proc struct, ProcessStatus enum, Suspicious trait
+    scanner.rs         — scan_processes(), get_process(), get_map(), check_preload(), get_cmdline(), get_exe(), get_fd(), get_whitelist()
+    ebpf.rs            — start_ebpf(), get_events(), read_events() — BPF loading + async event reading
+vigil-ebpf/            — BPF kernel program (compiled for bpfel-unknown-none)
+  src/
+    main.rs            — tracepoint for process_vm_readv, PerfEventArray for sending events
+vigil-common/          — shared types between kernel and userspace
+  src/
+    lib.rs             — SyscallEvent struct (#[repr(C)], no_std)
 ```
 
 ## How cheats work on Linux (research notes)
@@ -104,8 +119,14 @@ src/
 ## Building
 
 ```
-cargo build
-cargo run
+# build BPF program (needs nightly + bpf-linker)
+cargo +nightly build -p vigil-ebpf --target bpfel-unknown-none -Z build-std=core --release
+
+# build userspace
+cargo build -p vigil
+
+# run (needs sudo for eBPF + /proc/PID/fd access)
+sudo ./target/debug/vigil
 ```
 
-Requires Linux. Reads `/proc` filesystem — some process info may require elevated permissions.
+Requires Linux. eBPF tracepoints require root. `/proc/PID/fd` monitoring requires elevated permissions.

@@ -8,18 +8,21 @@ mod ebpf;
 mod process;
 mod scanner;
 
-// main monitoring loop — vigil anti-cheat core
-// scans all running processes every 5 sec via /proc
-// 5 detection methods: TracerPid, maps (w+x / suspicious dirs), LD_PRELOAD, cmdline debuggers, name check
+// vigil anti-cheat — two detection layers running in parallel:
+// 1. eBPF tracepoint — kernel-level hook catches every process_vm_readv call in real time
+//    loaded at startup via start_ebpf(), events read async via tokio::spawn per CPU
+// 2. /proc scanner — polls every 5 sec, 7 detection methods:
+//    TracerPid, maps (w+x / suspicious dirs), LD_PRELOAD, cmdline debuggers, exe path, fd, name
 // found = already alerted pids (dedup), found_maps = already checked .so paths (dedup)
-// whitelist = trusted path patterns from ~/.config/vigil/whitelist.txt
-// if process was suspicious but now its fine -> auto-remove from found (cleanup)
+// whitelist = trusted path patterns from /etc/vigil/whitelist.txt
+// history = previous scan pids for birth tracking (first_run skips initial alerts)
+// _active_ebpf = keeps Ebpf alive so BPF stays loaded in kernel (dropped = unloaded)
 //
 // how to test:
-// 1. sleep 1000 &        <- starts a dummy process, returns pid
-// 2. sudo strace -p PID  <- attaches debugger to it (sets TracerPid)
-// 3. cargo run            <- vigil should catch and print the sleep process
-// 4. ctrl+c strace        <- TracerPid goes back to 0, vigil removes it from found
+// 1. cargo +nightly build -p vigil-ebpf --target bpfel-unknown-none -Z build-std=core --release
+// 2. cargo build -p vigil && sudo ./target/debug/vigil
+// 3. from another terminal: python3 -c "import ctypes; libc = ctypes.CDLL('libc.so.6'); libc.process_vm_readv(1, 0, 0, 0, 0, 0)"
+// 4. vigil should print SyscallEvent { pid_caller: ..., pid_target: 1 }
 
 #[tokio::main]
 async fn main() {

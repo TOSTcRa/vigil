@@ -5,7 +5,7 @@ pub trait Suspicious {
 }
 
 // represents a linux process built from multiple /proc/PID/* files
-// status gives name + state + TracerPid, environ gives LD_PRELOAD, cmdline gives launch args
+// built by get_process() in scanner.rs from: status, environ, cmdline, exe, fd
 // fields are private — use getters to read, cant modify from outside
 // name = process name (like "sleep", "cs2", "strace")
 // pid = process id number
@@ -13,6 +13,7 @@ pub trait Suspicious {
 // tracer_pid = if not 0 -> someone is debugging/tracing this process (cheats do this)
 // preload_path = Some(path) if process has LD_PRELOAD set (library injection)
 // cmdline = full command line args (for detecting debugger tools)
+// exe_path = Some(path) if binary runs from suspicious dir (/tmp, /home, /dev/shm) and not whitelisted
 #[derive(Debug)]
 pub struct Proc {
     name: String,
@@ -75,7 +76,8 @@ impl Proc {
 // 2. tracer_pid != 0 (someone is debugging/tracing it)
 // 3. has LD_PRELOAD set (preload_path.is_some() = library injection)
 // 4. cmdline contains gdb/strace/ltrace (debugger tools attached)
-// 5. status is unknown/weird (Suspicious variant from /proc parsing)
+// 5. exe_path is Some = binary runs from suspicious dir and not whitelisted
+// 6. status is unknown/weird (Suspicious variant from /proc parsing)
 impl Suspicious for Proc {
     fn is_suspicious(&self) -> bool {
         self.name.contains("cheat")

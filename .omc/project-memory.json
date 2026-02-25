@@ -61,9 +61,51 @@
   },
   "hotPaths": [
     {
+      "path": "README.MD",
+      "accessCount": 5,
+      "lastAccessed": 1772022243057,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/ebpf.rs",
+      "accessCount": 5,
+      "lastAccessed": 1772022317272,
+      "type": "file"
+    },
+    {
+      "path": "vigil-common/src/lib.rs",
+      "accessCount": 4,
+      "lastAccessed": 1772022333537,
+      "type": "file"
+    },
+    {
       "path": "Cargo.toml",
       "accessCount": 3,
       "lastAccessed": 1771958303899,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/main.rs",
+      "accessCount": 3,
+      "lastAccessed": 1772022260153,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/process.rs",
+      "accessCount": 3,
+      "lastAccessed": 1772022277034,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/scanner.rs",
+      "accessCount": 3,
+      "lastAccessed": 1772022291267,
+      "type": "file"
+    },
+    {
+      "path": "vigil-ebpf/src/main.rs",
+      "accessCount": 3,
+      "lastAccessed": 1772022326542,
       "type": "file"
     },
     {
@@ -76,12 +118,6 @@
       "path": "vigil-ebpf/Cargo.toml",
       "accessCount": 2,
       "lastAccessed": 1771958311436,
-      "type": "file"
-    },
-    {
-      "path": "vigil-common/src/lib.rs",
-      "accessCount": 2,
-      "lastAccessed": 1771958566708,
       "type": "file"
     },
     {
@@ -103,12 +139,6 @@
       "type": "file"
     },
     {
-      "path": "vigil-ebpf/src/main.rs",
-      "accessCount": 1,
-      "lastAccessed": 1771956072763,
-      "type": "file"
-    },
-    {
       "path": "vigil-common/Cargo.toml",
       "accessCount": 1,
       "lastAccessed": 1771958302561,
@@ -119,18 +149,6 @@
       "accessCount": 1,
       "lastAccessed": 1771963639745,
       "type": "directory"
-    },
-    {
-      "path": "vigil/src/ebpf.rs",
-      "accessCount": 1,
-      "lastAccessed": 1771963642465,
-      "type": "file"
-    },
-    {
-      "path": "vigil/src/main.rs",
-      "accessCount": 1,
-      "lastAccessed": 1771963643435,
-      "type": "file"
     }
   ],
   "userDirectives": []

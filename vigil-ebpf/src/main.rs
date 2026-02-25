@@ -8,11 +8,13 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 use vigil_common::SyscallEvent;
-// BPF program — lives inside the kernel
+// BPF program — lives inside the kernel, loaded by vigil/src/ebpf.rs
 // no_std = no standard library (kernel doesnt have it)
 // no_main = no normal main function (kernel loads this differently)
-
-// TODO: tracepoint hook for process_vm_readv syscall (310 on x86_64)
+// compiles to bpfel-unknown-none target with nightly + build-std=core --release
+// tracepoint hooks sys_enter_process_vm_readv (syscall 310 on x86_64)
+// catches EVERY call in real time — unlike /proc polling which checks every 5 sec
+// sends (pid_caller, pid_target) to userspace via PerfEventArray EVENTS map
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
