@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1771809283650,
+  "lastScanned": 1771941002782,
   "projectRoot": "/home/tostcr/Dreams/vigil",
   "techStack": {
     "languages": [
@@ -44,7 +44,7 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 3,
-      "lastAccessed": 1771809283641,
+      "lastAccessed": 1771941002744,
       "keyFiles": [
         "main.rs",
         "process.rs",
@@ -55,21 +55,81 @@
       "path": "target",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771809283645,
+      "lastAccessed": 1771941002766,
       "keyFiles": []
     }
   },
   "hotPaths": [
     {
-      "path": "src/scanner.rs",
-      "accessCount": 2,
-      "lastAccessed": 1771814143438,
+      "path": "Cargo.toml",
+      "accessCount": 3,
+      "lastAccessed": 1771958303899,
       "type": "file"
     },
     {
-      "path": "README.MD",
+      "path": "vigil/Cargo.toml",
+      "accessCount": 2,
+      "lastAccessed": 1771958310455,
+      "type": "file"
+    },
+    {
+      "path": "vigil-ebpf/Cargo.toml",
+      "accessCount": 2,
+      "lastAccessed": 1771958311436,
+      "type": "file"
+    },
+    {
+      "path": "vigil-common/src/lib.rs",
+      "accessCount": 2,
+      "lastAccessed": 1771958566708,
+      "type": "file"
+    },
+    {
+      "path": "src/main.rs",
       "accessCount": 1,
-      "lastAccessed": 1771814197293,
+      "lastAccessed": 1771956018582,
+      "type": "file"
+    },
+    {
+      "path": "src/scanner.rs",
+      "accessCount": 1,
+      "lastAccessed": 1771956018589,
+      "type": "file"
+    },
+    {
+      "path": "src/process.rs",
+      "accessCount": 1,
+      "lastAccessed": 1771956018593,
+      "type": "file"
+    },
+    {
+      "path": "vigil-ebpf/src/main.rs",
+      "accessCount": 1,
+      "lastAccessed": 1771956072763,
+      "type": "file"
+    },
+    {
+      "path": "vigil-common/Cargo.toml",
+      "accessCount": 1,
+      "lastAccessed": 1771958302561,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1771963639745,
+      "type": "directory"
+    },
+    {
+      "path": "vigil/src/ebpf.rs",
+      "accessCount": 1,
+      "lastAccessed": 1771963642465,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/main.rs",
+      "accessCount": 1,
+      "lastAccessed": 1771963643435,
       "type": "file"
     }
   ],

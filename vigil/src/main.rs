@@ -1,10 +1,10 @@
-use std::{collections::HashSet, thread, time::Duration};
-
 use crate::{
+    ebpf::{get_events, read_events, start_ebpf},
     process::Suspicious,
     scanner::{get_fd, get_map, get_process, get_whitelist, scan_processes},
 };
 
+mod ebpf;
 mod process;
 mod scanner;
 
@@ -20,14 +20,35 @@ mod scanner;
 // 2. sudo strace -p PID  <- attaches debugger to it (sets TracerPid)
 // 3. cargo run            <- vigil should catch and print the sleep process
 // 4. ctrl+c strace        <- TracerPid goes back to 0, vigil removes it from found
-fn main() {
-    let mut history: HashSet<u64> = HashSet::new();
-    let mut found: HashSet<u64> = HashSet::new();
-    let mut found_maps: HashSet<String> = HashSet::new();
+
+#[tokio::main]
+async fn main() {
+    let mut history: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut found: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut found_maps: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let whitelist = get_whitelist().unwrap_or_default();
-
     let mut first_run = true;
+
+    let mut _active_ebpf = None;
+
+    match start_ebpf() {
+        Ok(mut ebpf) => {
+            match get_events(&mut ebpf) {
+                Ok(mut perf_array) => {
+                    if let Err(e) = read_events(&mut perf_array).await {
+                        println!("Error reading events: {:?}", e);
+                    } else {
+                        println!("eBPF loaded and listening in the background!");
+                    }
+                }
+                Err(err) => println!("Error getting events: {:?}", err),
+            }
+
+            _active_ebpf = Some(ebpf);
+        }
+        Err(e) => println!("Ebpf err: {:?}", e),
+    }
 
     loop {
         if let Ok(vec) = scan_processes() {
@@ -64,6 +85,6 @@ fn main() {
             first_run = false;
         }
 
-        thread::sleep(Duration::from_secs(5));
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }

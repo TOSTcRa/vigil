@@ -1,0 +1,11 @@
+[package]
+name = "vigil"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aya = "0.13.1"
+aya-log = "0.2"
+bytes = "1.11.1"
+tokio = {version = "1.49.0", features = ["rt", "macros", "rt-multi-thread", "signal"]}
+vigil-common = { path = "../vigil-common", features = ["user"] }

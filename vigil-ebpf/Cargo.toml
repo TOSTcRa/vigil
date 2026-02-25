@@ -1,0 +1,13 @@
+[package]
+name = "vigil-ebpf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+vigil-common = { path = "../vigil-common", default-features = false }
+
+[[bin]]
+name = "vigil"
+path = "src/main.rs"
