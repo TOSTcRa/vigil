@@ -42,8 +42,8 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - [x] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
 - [x] Detect `process_vm_readv` usage via eBPF tracepoint (kernel-level, real-time)
 - [x] Detect `process_vm_writev` usage via eBPF tracepoint (kernel-level, real-time)
-- [ ] Parent process tracking (PPid) — detect suspicious process trees
-- [ ] `/proc/modules` scanning — detect rootkit-style kernel modules
+- [x] Parent process tracking (PPid) — parsed from /proc/PID/status, suspicious tree detection TBD
+- [x] `/proc/modules` scanning — detect new/unloaded kernel modules (birth/death tracking)
 - [ ] Detect known cheat signatures (hash database)
 - [ ] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 

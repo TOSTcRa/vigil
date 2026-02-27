@@ -30,6 +30,7 @@ pub fn scan_processes() -> std::io::Result<Vec<u64>> {
 pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
     let mut name = String::new();
     let mut tracer_pid: u64 = 0;
+    let mut ppid: u64 = 0;
     let mut status = ProcessStatus::Suspicious(String::from("Status not found"));
 
     let path = format!("/proc/{}/status", pid);
@@ -55,6 +56,11 @@ pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
                         tracer_pid = num;
                     }
                 }
+                "PPid" => {
+                    if let Ok(num) = value.parse::<u64>() {
+                        ppid = num;
+                    }
+                }
                 _ => {}
             }
         }
@@ -72,6 +78,7 @@ pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
         preload_path,
         cmdline,
         exe_path,
+        ppid,
     ))
 }
 
@@ -223,5 +230,18 @@ pub fn get_fd(pid: u64) -> std::io::Result<Vec<u64>> {
             }
         }
     }
+    Ok(res)
+}
+
+pub fn get_modules() -> std::io::Result<Vec<String>> {
+    let content = std::fs::read_to_string("/proc/modules")?;
+    let mut res: Vec<String> = vec![];
+
+    for line in content.lines() {
+        let splited: Vec<&str> = line.split_whitespace().collect();
+
+        res.push(splited[0].to_string());
+    }
+
     Ok(res)
 }

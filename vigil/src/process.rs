@@ -23,6 +23,7 @@ pub struct Proc {
     preload_path: Option<String>,
     cmdline: String,
     exe_path: Option<String>,
+    ppid: u64,
 }
 
 // possible states from /proc/PID/status "State" field
@@ -46,6 +47,7 @@ impl Proc {
         preload_path: Option<String>,
         cmdline: String,
         exe_path: Option<String>,
+        ppid: u64,
     ) -> Self {
         Self {
             name,
@@ -55,6 +57,7 @@ impl Proc {
             preload_path,
             cmdline,
             exe_path,
+            ppid,
         }
     }
 

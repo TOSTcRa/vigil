@@ -105,8 +105,8 @@
   "hotPaths": [
     {
       "path": "README.MD",
-      "accessCount": 2,
-      "lastAccessed": 1772230495242,
+      "accessCount": 4,
+      "lastAccessed": 1772232096843,
       "type": "file"
     },
     {
@@ -125,6 +125,24 @@
       "path": "vigil-common/src/lib.rs",
       "accessCount": 1,
       "lastAccessed": 1772230345565,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/process.rs",
+      "accessCount": 1,
+      "lastAccessed": 1772230928724,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/scanner.rs",
+      "accessCount": 1,
+      "lastAccessed": 1772230929305,
+      "type": "file"
+    },
+    {
+      "path": "vigil/src/main.rs",
+      "accessCount": 1,
+      "lastAccessed": 1772232078175,
       "type": "file"
     }
   ],

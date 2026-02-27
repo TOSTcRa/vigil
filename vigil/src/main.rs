@@ -1,7 +1,7 @@
 use crate::{
     ebpf::{get_events, read_events, start_ebpf},
     process::Suspicious,
-    scanner::{get_fd, get_map, get_process, get_whitelist, scan_processes},
+    scanner::{get_fd, get_map, get_modules, get_process, get_whitelist, scan_processes},
 };
 
 mod ebpf;
@@ -27,6 +27,7 @@ mod scanner;
 #[tokio::main]
 async fn main() {
     let mut history: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut module_history: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut found: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut found_maps: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -114,9 +115,25 @@ V::::::V           V::::::V                                   l:::::l
             }
 
             history = vec.into_iter().collect();
-            first_run = false;
         }
 
+        if let Ok(modules) = get_modules() {
+            let current_modules: std::collections::HashSet<String> = modules.into_iter().collect();
+
+            if !first_run {
+                for new_mod in current_modules.difference(&module_history) {
+                    println!("[ALERT] A new kernel module was loaded: {}", new_mod);
+                }
+
+                for dead_mod in module_history.difference(&current_modules) {
+                    println!("[INFO] A kernel module was unloaded: {}", dead_mod);
+                }
+            }
+
+            module_history = current_modules;
+        }
+
+        first_run = false;
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
