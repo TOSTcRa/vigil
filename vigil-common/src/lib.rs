@@ -9,4 +9,5 @@
 pub struct SyscallEvent {
     pub pid_caller: i32,
     pub pid_target: i32,
+    pub syscall_type: u8,
 }

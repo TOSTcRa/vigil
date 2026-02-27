@@ -20,7 +20,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - Monitor `/proc/{PID}/fd` — detect processes reading other processes memory via /proc/*/mem
 - Whitelist system (`/etc/vigil/whitelist.txt`) — filter trusted paths in maps, LD_PRELOAD, and exe
 - Process birth tracking — detect new processes appearing mid-game
-- eBPF tracepoint — kernel-level interception of `process_vm_readv` syscall in real time
+- eBPF tracepoints — kernel-level interception of `process_vm_readv` and `process_vm_writev` in real time
 - Async event reading via tokio — BPF events processed in background, /proc scan in main loop
 
 ## Roadmap
@@ -41,7 +41,7 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 ### Phase 2: Deep Process Inspection
 - [x] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
 - [x] Detect `process_vm_readv` usage via eBPF tracepoint (kernel-level, real-time)
-- [ ] Detect `process_vm_writev` usage via eBPF tracepoint (memory write without ptrace)
+- [x] Detect `process_vm_writev` usage via eBPF tracepoint (kernel-level, real-time)
 - [ ] Parent process tracking (PPid) — detect suspicious process trees
 - [ ] `/proc/modules` scanning — detect rootkit-style kernel modules
 - [ ] Detect known cheat signatures (hash database)

@@ -5,18 +5,24 @@ use aya::util::online_cpus;
 use bytes::BytesMut;
 use vigil_common::SyscallEvent;
 
-// loads compiled BPF bytecode from target dir, attaches tracepoint to sys_enter_process_vm_readv
+// loads compiled BPF bytecode from target dir, attaches two tracepoints:
+// trace_read -> sys_enter_process_vm_readv, trace_write -> sys_enter_process_vm_writev
 // returns Ebpf object — MUST be kept alive in main, otherwise BPF unloads from kernel (ownership)
-// program_mut("get_syscall") = BPF function name, try_into() casts to TracePoint type
 // needs sudo — loading BPF into kernel requires root
 // BPF must be compiled with --release (dev profile produces invalid bytecode for kernel verifier)
 pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     let bytes = std::fs::read("./target/bpfel-unknown-none/release/vigil")?;
     let mut ebpf = Ebpf::load(&bytes)?;
-    let tracepoint = ebpf.program_mut("get_syscall").ok_or("program not found")?;
-    let tp: &mut TracePoint = tracepoint.try_into()?;
-    tp.load()?;
-    tp.attach("syscalls", "sys_enter_process_vm_readv")?;
+
+    let tp_read = ebpf.program_mut("trace_read").ok_or("program not found")?;
+    let read: &mut TracePoint = tp_read.try_into()?;
+    read.load()?;
+    read.attach("syscalls", "sys_enter_process_vm_readv")?;
+
+    let tp_write = ebpf.program_mut("trace_write").ok_or("program not found")?;
+    let write: &mut TracePoint = tp_write.try_into()?;
+    write.load()?;
+    write.attach("syscalls", "sys_enter_process_vm_writev")?;
 
     Ok(ebpf)
 }

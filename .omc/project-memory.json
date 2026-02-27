@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1771941002782,
+  "lastScanned": 1772180767092,
   "projectRoot": "/home/tostcr/Dreams/vigil",
   "techStack": {
     "languages": [
@@ -33,122 +33,99 @@
   "structure": {
     "isMonorepo": false,
     "workspaces": [],
-    "mainDirectories": [
-      "src"
-    ],
+    "mainDirectories": [],
     "gitBranches": null
   },
   "customNotes": [],
   "directoryMap": {
-    "src": {
-      "path": "src",
-      "purpose": "Source code",
-      "fileCount": 3,
-      "lastAccessed": 1771941002744,
-      "keyFiles": [
-        "main.rs",
-        "process.rs",
-        "scanner.rs"
-      ]
-    },
     "target": {
       "path": "target",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771941002766,
+      "lastAccessed": 1772180767076,
       "keyFiles": []
+    },
+    "vigil": {
+      "path": "vigil",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1772180767083,
+      "keyFiles": [
+        "Cargo.toml"
+      ]
+    },
+    "vigil-common": {
+      "path": "vigil-common",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1772180767084,
+      "keyFiles": [
+        "Cargo.toml"
+      ]
+    },
+    "vigil-ebpf": {
+      "path": "vigil-ebpf",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1772180767086,
+      "keyFiles": [
+        "Cargo.toml"
+      ]
+    },
+    "vigil/src": {
+      "path": "vigil/src",
+      "purpose": "Source code",
+      "fileCount": 4,
+      "lastAccessed": 1772180767087,
+      "keyFiles": [
+        "ebpf.rs",
+        "main.rs",
+        "process.rs"
+      ]
+    },
+    "vigil-common/src": {
+      "path": "vigil-common/src",
+      "purpose": "Source code",
+      "fileCount": 1,
+      "lastAccessed": 1772180767089,
+      "keyFiles": [
+        "lib.rs"
+      ]
+    },
+    "vigil-ebpf/src": {
+      "path": "vigil-ebpf/src",
+      "purpose": "Source code",
+      "fileCount": 1,
+      "lastAccessed": 1772180767089,
+      "keyFiles": [
+        "main.rs"
+      ]
     }
   },
   "hotPaths": [
     {
       "path": "README.MD",
-      "accessCount": 5,
-      "lastAccessed": 1772022243057,
-      "type": "file"
-    },
-    {
-      "path": "vigil/src/ebpf.rs",
-      "accessCount": 5,
-      "lastAccessed": 1772022317272,
-      "type": "file"
-    },
-    {
-      "path": "vigil-common/src/lib.rs",
-      "accessCount": 4,
-      "lastAccessed": 1772022333537,
-      "type": "file"
-    },
-    {
-      "path": "Cargo.toml",
-      "accessCount": 3,
-      "lastAccessed": 1771958303899,
-      "type": "file"
-    },
-    {
-      "path": "vigil/src/main.rs",
-      "accessCount": 3,
-      "lastAccessed": 1772022260153,
-      "type": "file"
-    },
-    {
-      "path": "vigil/src/process.rs",
-      "accessCount": 3,
-      "lastAccessed": 1772022277034,
-      "type": "file"
-    },
-    {
-      "path": "vigil/src/scanner.rs",
-      "accessCount": 3,
-      "lastAccessed": 1772022291267,
+      "accessCount": 2,
+      "lastAccessed": 1772230495242,
       "type": "file"
     },
     {
       "path": "vigil-ebpf/src/main.rs",
-      "accessCount": 3,
-      "lastAccessed": 1772022326542,
-      "type": "file"
-    },
-    {
-      "path": "vigil/Cargo.toml",
       "accessCount": 2,
-      "lastAccessed": 1771958310455,
+      "lastAccessed": 1772230502211,
       "type": "file"
     },
     {
-      "path": "vigil-ebpf/Cargo.toml",
+      "path": "vigil/src/ebpf.rs",
       "accessCount": 2,
-      "lastAccessed": 1771958311436,
+      "lastAccessed": 1772230513430,
       "type": "file"
     },
     {
-      "path": "src/main.rs",
+      "path": "vigil-common/src/lib.rs",
       "accessCount": 1,
-      "lastAccessed": 1771956018582,
+      "lastAccessed": 1772230345565,
       "type": "file"
-    },
-    {
-      "path": "src/scanner.rs",
-      "accessCount": 1,
-      "lastAccessed": 1771956018589,
-      "type": "file"
-    },
-    {
-      "path": "src/process.rs",
-      "accessCount": 1,
-      "lastAccessed": 1771956018593,
-      "type": "file"
-    },
-    {
-      "path": "vigil-common/Cargo.toml",
-      "accessCount": 1,
-      "lastAccessed": 1771958302561,
-      "type": "file"
-    },
-    {
-      "path": "",
-      "accessCount": 1,
-      "lastAccessed": 1771963639745,
-      "type": "directory"
     }
   ],
   "userDirectives": []

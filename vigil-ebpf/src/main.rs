@@ -12,9 +12,10 @@ use vigil_common::SyscallEvent;
 // no_std = no standard library (kernel doesnt have it)
 // no_main = no normal main function (kernel loads this differently)
 // compiles to bpfel-unknown-none target with nightly + build-std=core --release
-// tracepoint hooks sys_enter_process_vm_readv (syscall 310 on x86_64)
+// two tracepoints: sys_enter_process_vm_readv (310) and sys_enter_process_vm_writev (311)
 // catches EVERY call in real time — unlike /proc polling which checks every 5 sec
-// sends (pid_caller, pid_target) to userspace via PerfEventArray EVENTS map
+// sends (pid_caller, pid_target, syscall_type) to userspace via shared PerfEventArray EVENTS map
+// syscall_type: 0 = readv, 1 = writev
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -25,12 +26,28 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 static EVENTS: PerfEventArray<SyscallEvent> = PerfEventArray::new(0);
 
 #[tracepoint(name = "sys_enter_process_vm_readv", category = "syscalls")]
-fn get_syscall(ctx: TracePointContext) -> u32 {
+fn trace_read(ctx: TracePointContext) -> u32 {
     let pid_caller = (bpf_get_current_pid_tgid() >> 32) as i32;
     if let Ok(pid_target) = unsafe { ctx.read_at::<i32>(16) } {
         let event = SyscallEvent {
             pid_caller,
             pid_target,
+            syscall_type: 0,
+        };
+        EVENTS.output(&ctx, &event, 0);
+    }
+
+    0
+}
+
+#[tracepoint(name = "sys_enter_process_vm_writev", category = "syscalls")]
+fn trace_write(ctx: TracePointContext) -> u32 {
+    let pid_caller = (bpf_get_current_pid_tgid() >> 32) as i32;
+    if let Ok(pid_target) = unsafe { ctx.read_at::<i32>(16) } {
+        let event = SyscallEvent {
+            pid_caller,
+            pid_target,
+            syscall_type: 1,
         };
         EVENTS.output(&ctx, &event, 0);
     }
