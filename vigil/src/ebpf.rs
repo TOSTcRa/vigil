@@ -43,6 +43,13 @@ pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     mem_write.load()?;
     mem_write.attach("mem_write", 0)?;
 
+    let tp_do_init_module = ebpf
+        .program_mut("trace_do_init_module")
+        .ok_or("program not found")?;
+    let do_init_module: &mut KProbe = tp_do_init_module.try_into()?;
+    do_init_module.load()?;
+    do_init_module.attach("do_init_module", 0)?;
+
     Ok(ebpf)
 }
 

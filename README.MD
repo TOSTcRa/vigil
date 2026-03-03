@@ -78,6 +78,13 @@ Tracepoints hooked directly into the kernel. Fires on every matching syscall in 
 | `sys_enter_ptrace` | Debugger attachment (PEEKDATA memory reads, breakpoints) |
 | `sys_enter_memfd_create` | Anonymous file creation (fileless code injection) |
 
+**Kprobes** (kernel function hooks):
+
+| Kprobe | Catches |
+|---|---|
+| `mem_write` | Direct writes to `/proc/PID/mem` (memory injection) |
+| `do_init_module` | Kernel module loading in real time (rootkit detection) |
+
 Events flow through a shared `PerfEventArray` map — one async reader per CPU core via tokio.
 
 ### Layer 2: /proc Filesystem Scanner
@@ -110,7 +117,7 @@ vigil/                      Cargo workspace root
 |
 +-- vigil-ebpf/             BPF kernel program (bpfel-unknown-none target)
 |   +-- src/
-|       +-- main.rs         Tracepoints: vm_readv, vm_writev, ptrace, memfd_create
+|       +-- main.rs         Tracepoints + kprobes: vm_readv, vm_writev, ptrace, memfd_create, mem_write, do_init_module
 |
 +-- vigil-common/           Shared types (kernel <-> userspace)
     +-- src/
@@ -191,7 +198,7 @@ Understanding the enemy:
 - [x] Detect `ptrace` usage via eBPF tracepoint (`sys_enter_ptrace`)
 - [x] Detect `memfd_create` usage via eBPF tracepoint — catch anonymous file creation
 - [x] Detect `/proc/PID/mem` writes via eBPF tracepoint — catch direct memory injection
-- [ ] Detect kernel module loading in real time via eBPF kprobe on `do_init_module`
+- [x] Detect kernel module loading in real time via eBPF kprobe on `do_init_module`
 - [ ] Detect known cheat signatures (hash database)
 - [ ] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 

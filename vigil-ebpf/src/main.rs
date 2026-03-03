@@ -94,3 +94,15 @@ fn trace_mem_write(ctx: ProbeContext) -> u32 {
     EVENTS.output(&ctx, &event, 0);
     0
 }
+
+#[kprobe]
+fn trace_do_init_module(ctx: ProbeContext) -> u32 {
+    let pid_caller = (bpf_get_current_pid_tgid() >> 32) as i32;
+    let event = SyscallEvent {
+        pid_caller,
+        pid_target: 0,
+        syscall_type: 5,
+    };
+    EVENTS.output(&ctx, &event, 0);
+    0
+}

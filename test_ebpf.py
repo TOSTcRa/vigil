@@ -37,12 +37,17 @@ def test_mem_write():
         print(f"  (expected error: {e})")
     print("  -> sent\n")
 
+def test_init_module():
+    print("[TEST] do_init_module kprobe (syscall_type: 5)")
+    print("  Run manually: sudo modprobe dummy && sudo modprobe -r dummy")
+    print("  (cannot trigger from python)\n")
+
 if __name__ == "__main__":
     print("=== Vigil eBPF Test Suite ===\n")
     print(f"Test PID: {os.getpid()}")
     print(f"Target PID: 1 (init)\n")
 
-    tests = [test_readv, test_writev, test_ptrace, test_memfd, test_mem_write]
+    tests = [test_readv, test_writev, test_ptrace, test_memfd, test_mem_write, test_init_module]
 
     for test in tests:
         test()
