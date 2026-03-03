@@ -2,7 +2,8 @@ use crate::{
     ebpf::{get_events, read_events, start_ebpf},
     process::{Proc, Suspicious},
     scanner::{
-        get_cross_traces, get_fd, get_map, get_modules, get_process, get_whitelist, scan_processes,
+        check_hash, get_cheat_db, get_cross_traces, get_fd, get_map, get_modules, get_process,
+        get_whitelist, scan_processes,
     },
 };
 
@@ -35,6 +36,7 @@ async fn main() {
     let mut procs: Vec<Proc> = vec![];
 
     let whitelist = get_whitelist().unwrap_or_default();
+    let cheat_db = get_cheat_db().unwrap_or_default();
     let mut first_run = true;
 
     let mut _active_ebpf = None;
@@ -101,6 +103,13 @@ V::::::V           V::::::V                                   l:::::l
                         && !val.is_empty()
                     {
                         println!("Process {}, reading other process memory: {:?}", pid, val);
+                    }
+
+                    if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
+                        println!(
+                            "[CHEAT] pid {} matched: {} [{}] — {}",
+                            pid, name, category, desc
+                        );
                     }
 
                     if found.contains(&pid) && !proc.is_suspicious() {

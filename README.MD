@@ -189,7 +189,7 @@ Understanding the enemy:
 - [x] Whitelist for trusted paths (`/etc/vigil/whitelist.txt` — filters maps + LD_PRELOAD)
 - [x] Process birth/death tracking (detect new processes appearing mid-game)
 
-### Phase 2: Deep Process Inspection *(in progress)*
+### Phase 2: Deep Process Inspection *(complete)*
 - [x] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
 - [x] Detect `process_vm_readv` usage via eBPF tracepoint (kernel-level, real-time)
 - [x] Detect `process_vm_writev` usage via eBPF tracepoint (kernel-level, real-time)
@@ -199,8 +199,8 @@ Understanding the enemy:
 - [x] Detect `memfd_create` usage via eBPF tracepoint — catch anonymous file creation
 - [x] Detect `/proc/PID/mem` writes via eBPF tracepoint — catch direct memory injection
 - [x] Detect kernel module loading in real time via eBPF kprobe on `do_init_module`
-- [ ] Detect known cheat signatures (hash database)
-- [ ] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
+- [x] Detect known cheat signatures (hash database + name matching)
+- [x] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 
 ### Phase 3: System-Level Detection
 - [ ] dmesg log monitoring for suspicious kernel activity

@@ -42,6 +42,28 @@ def test_init_module():
     print("  Run manually: sudo modprobe dummy && sudo modprobe -r dummy")
     print("  (cannot trigger from python)\n")
 
+def test_cheat_signature():
+    print("[TEST] Cheat signature detection (name_only match)")
+    import subprocess, stat
+    # Compile a tiny C binary named "scanmem" so /proc/PID/exe points to it
+    tmpdir = os.path.join("/tmp", f"vigil_test_{os.getpid()}")
+    os.makedirs(tmpdir, exist_ok=True)
+    src = os.path.join(tmpdir, "fakecheat.c")
+    fake = os.path.join(tmpdir, "scanmem")
+    with open(src, "w") as f:
+        f.write('#include <unistd.h>\nint main() { sleep(30); return 0; }\n')
+    os.system(f"cc {src} -o {fake}")
+    os.remove(src)
+    p = subprocess.Popen([fake])
+    print(f"  launched fake scanmem binary with pid {p.pid}")
+    print("  -> waiting 10s for Vigil to detect cheat signature...")
+    time.sleep(10)
+    p.kill()
+    p.wait()
+    os.remove(fake)
+    os.rmdir(tmpdir)
+    print("  -> done\n")
+
 def test_cross_trace():
     print("[TEST] TracerPid cross-reference (one tracer -> multiple targets)")
     import subprocess, signal
@@ -70,7 +92,7 @@ if __name__ == "__main__":
     print(f"Test PID: {os.getpid()}")
     print(f"Target PID: 1 (init)\n")
 
-    tests = [test_readv, test_writev, test_ptrace, test_memfd, test_mem_write, test_init_module, test_cross_trace]
+    tests = [test_readv, test_writev, test_ptrace, test_memfd, test_mem_write, test_init_module, test_cheat_signature, test_cross_trace]
 
     for test in tests:
         test()
