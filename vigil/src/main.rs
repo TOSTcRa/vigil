@@ -1,7 +1,9 @@
 use crate::{
     ebpf::{get_events, read_events, start_ebpf},
-    process::Suspicious,
-    scanner::{get_fd, get_map, get_modules, get_process, get_whitelist, scan_processes},
+    process::{Proc, Suspicious},
+    scanner::{
+        get_cross_traces, get_fd, get_map, get_modules, get_process, get_whitelist, scan_processes,
+    },
 };
 
 mod ebpf;
@@ -30,6 +32,7 @@ async fn main() {
     let mut module_history: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut found: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut found_maps: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut procs: Vec<Proc> = vec![];
 
     let whitelist = get_whitelist().unwrap_or_default();
     let mut first_run = true;
@@ -84,6 +87,7 @@ V::::::V           V::::::V                                   l:::::l
     }
 
     loop {
+        procs.clear();
         if let Ok(vec) = scan_processes() {
             for &pid in &vec {
                 if let Ok(proc) = get_process(pid, &whitelist) {
@@ -110,6 +114,19 @@ V::::::V           V::::::V                                   l:::::l
 
                     if !history.contains(&pid) && !first_run {
                         println!("A new process was born: \n{:?}", proc);
+                    }
+
+                    procs.push(proc);
+                }
+            }
+
+            if let Ok(cross_traced) = get_cross_traces(&procs) {
+                for (tracer, targets) in &cross_traced {
+                    if targets.len() > 1 {
+                        println!(
+                            "There is some tracer with pid: {:?} that traces more than 1 process: {:?}",
+                            tracer, targets
+                        );
                     }
                 }
             }

@@ -17,13 +17,13 @@ pub trait Suspicious {
 #[derive(Debug)]
 pub struct Proc {
     name: String,
-    pid: u64,
+    _pid: u64,
     status: ProcessStatus,
     tracer_pid: u64,
     preload_path: Option<String>,
     cmdline: String,
     exe_path: Option<String>,
-    ppid: u64,
+    _ppid: u64,
 }
 
 // possible states from /proc/PID/status "State" field
@@ -35,42 +35,40 @@ pub enum ProcessStatus {
     Sleeping,
     Stopped,
     Zombie,
+    #[allow(dead_code)]
     Suspicious(String),
 }
 
 impl Proc {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
-        pid: u64,
+        _pid: u64,
         status: ProcessStatus,
         tracer_pid: u64,
         preload_path: Option<String>,
         cmdline: String,
         exe_path: Option<String>,
-        ppid: u64,
+        _ppid: u64,
     ) -> Self {
         Self {
             name,
-            pid,
+            _pid,
             status,
             tracer_pid,
             preload_path,
             cmdline,
             exe_path,
-            ppid,
+            _ppid,
         }
     }
 
-    pub fn rename(&mut self, new_name: &str) {
-        self.name = String::from(new_name);
+    pub fn get_tracer_pid(&self) -> &u64 {
+        &self.tracer_pid
     }
 
-    pub fn get_status(&self) -> &ProcessStatus {
-        &self.status
-    }
-
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn get_pid(&self) -> &u64 {
+        &self._pid
     }
 }
 

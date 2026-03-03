@@ -245,3 +245,20 @@ pub fn get_modules() -> std::io::Result<Vec<String>> {
 
     Ok(res)
 }
+
+pub fn get_cross_traces(
+    procs: &[Proc],
+) -> std::io::Result<std::collections::HashMap<u64, Vec<u64>>> {
+    let mut res: std::collections::HashMap<u64, Vec<u64>> = std::collections::HashMap::new();
+
+    for p in procs {
+        let tracer_pid: u64 = *p.get_tracer_pid();
+        let pid: u64 = *p.get_pid();
+
+        if tracer_pid != 0 {
+            res.entry(tracer_pid).or_default().push(pid);
+        }
+    }
+
+    Ok(res)
+}

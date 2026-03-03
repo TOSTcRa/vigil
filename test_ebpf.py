@@ -42,12 +42,35 @@ def test_init_module():
     print("  Run manually: sudo modprobe dummy && sudo modprobe -r dummy")
     print("  (cannot trigger from python)\n")
 
+def test_cross_trace():
+    print("[TEST] TracerPid cross-reference (one tracer -> multiple targets)")
+    import subprocess, signal
+    PTRACE_ATTACH = 16
+    PTRACE_DETACH = 17
+    targets = []
+    try:
+        for i in range(3):
+            p = subprocess.Popen(["sleep", "60"])
+            targets.append(p)
+        time.sleep(0.5)
+        for p in targets:
+            libc.ptrace(PTRACE_ATTACH, p.pid, 0, 0)
+            print(f"  attached to pid {p.pid}")
+        print("  -> waiting 10s for Vigil to detect cross-trace...")
+        time.sleep(10)
+    finally:
+        for p in targets:
+            libc.ptrace(PTRACE_DETACH, p.pid, 0, 0)
+            p.kill()
+            p.wait()
+    print("  -> done\n")
+
 if __name__ == "__main__":
     print("=== Vigil eBPF Test Suite ===\n")
     print(f"Test PID: {os.getpid()}")
     print(f"Target PID: 1 (init)\n")
 
-    tests = [test_readv, test_writev, test_ptrace, test_memfd, test_mem_write, test_init_module]
+    tests = [test_readv, test_writev, test_ptrace, test_memfd, test_mem_write, test_init_module, test_cross_trace]
 
     for test in tests:
         test()
