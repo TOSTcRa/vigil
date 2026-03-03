@@ -1,6 +1,6 @@
 use aya::Ebpf;
 use aya::maps::{AsyncPerfEventArray, MapData};
-use aya::programs::TracePoint;
+use aya::programs::{KProbe, TracePoint};
 use aya::util::online_cpus;
 use bytes::BytesMut;
 use vigil_common::SyscallEvent;
@@ -35,6 +35,13 @@ pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     let memfd: &mut TracePoint = tp_memfd.try_into()?;
     memfd.load()?;
     memfd.attach("syscalls", "sys_enter_memfd_create")?;
+
+    let tp_mem_write = ebpf
+        .program_mut("trace_mem_write")
+        .ok_or("program not found")?;
+    let mem_write: &mut KProbe = tp_mem_write.try_into()?;
+    mem_write.load()?;
+    mem_write.attach("mem_write", 0)?;
 
     Ok(ebpf)
 }

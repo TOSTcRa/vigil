@@ -3,9 +3,9 @@
 
 use aya_ebpf::{
     helpers::bpf_get_current_pid_tgid,
-    macros::{map, tracepoint},
+    macros::{kprobe, map, tracepoint},
     maps::PerfEventArray,
-    programs::TracePointContext,
+    programs::{ProbeContext, TracePointContext},
 };
 use vigil_common::SyscallEvent;
 // BPF program — lives inside the kernel, loaded by vigil/src/ebpf.rs
@@ -80,5 +80,17 @@ fn trace_memfd(ctx: TracePointContext) -> u32 {
     };
     EVENTS.output(&ctx, &event, 0);
 
+    0
+}
+
+#[kprobe]
+fn trace_mem_write(ctx: ProbeContext) -> u32 {
+    let pid_caller = (bpf_get_current_pid_tgid() >> 32) as i32;
+    let event = SyscallEvent {
+        pid_caller,
+        pid_target: 0,
+        syscall_type: 4,
+    };
+    EVENTS.output(&ctx, &event, 0);
     0
 }
