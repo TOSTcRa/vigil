@@ -1,31 +1,190 @@
-# VIGIL Anti-Cheat System
+<div align="center">
 
-Linux-native anti-cheat for competitive gaming (CS2 and others). Written in Rust.
+```
+VVVVVVVV           VVVVVVVV iiii                        iiii  lllllll
+V::::::V           V::::::Vi::::i                      i::::i l:::::l
+V::::::V           V::::::V iiii                        iiii  l:::::l
+V::::::V           V::::::V                                   l:::::l
+ V:::::V           V:::::Viiiiiii    ggggggggg   gggggiiiiiii  l::::l
+  V:::::V         V:::::V i:::::i   g:::::::::ggg::::gi:::::i  l::::l
+   V:::::V       V:::::V   i::::i  g:::::::::::::::::g i::::i  l::::l
+    V:::::V     V:::::V    i::::i g::::::ggggg::::::gg i::::i  l::::l
+     V:::::V   V:::::V     i::::i g:::::g     g:::::g  i::::i  l::::l
+      V:::::V V:::::V      i::::i g:::::g     g:::::g  i::::i  l::::l
+       V:::::V:::::V       i::::i g:::::g     g:::::g  i::::i  l::::l
+        V:::::::::V        i::::i g::::::g    g:::::g  i::::i  l::::l
+         V:::::::V        i::::::ig:::::::ggggg:::::g i::::::il::::::l
+          V:::::V         i::::::i g::::::::::::::::g i::::::il::::::l
+           V:::V          i::::::i  gg::::::::::::::g i::::::il::::::l
+            VVV           iiiiiiii    gggggggg::::::g iiiiiiiillllllll
+                                              g:::::g
+                                  gggggg      g:::::g
+                                  g:::::gg   gg:::::g
+                                   g::::::ggg:::::::g
+                                    gg:::::::::::::g
+                                      ggg::::::ggg
+                                         gggggg
+```
 
-Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
+**Linux-native anti-cheat for competitive gaming.**
 
-## Current Status
+Written in Rust. Powered by eBPF.
 
-**Phase 2 IN PROGRESS.** Working process scanner with continuous monitoring, 6 detection methods, whitelist system, process birth tracking, fd monitoring, and eBPF kernel-level syscall interception. All tested live.
+[![Linux](https://img.shields.io/badge/platform-Linux-yellow?logo=linux&logoColor=white)](#)
+[![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust)](#)
+[![eBPF](https://img.shields.io/badge/kernel-eBPF-red)](#)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](#)
+[![Status](https://img.shields.io/badge/status-Phase%202-brightgreen)](#)
 
-### What works now:
-- Scan all running processes via `/proc`
-- Parse `/proc/{PID}/status` (name, state, TracerPid)
-- Detect processes being traced/debugged (TracerPid != 0)
-- Continuous monitoring loop (every 5 sec, deduplication, auto-cleanup)
-- Parse `/proc/{PID}/maps` — detect suspicious .so libraries (w+x permissions, unusual paths)
-- Parse `/proc/{PID}/environ` — detect LD_PRELOAD injection
-- Parse `/proc/{PID}/cmdline` — detect debugger tools (gdb, strace, ltrace)
-- Parse `/proc/{PID}/exe` — detect binaries from suspicious dirs (symlink check + whitelist)
-- Monitor `/proc/{PID}/fd` — detect processes reading other processes memory via /proc/*/mem
-- Whitelist system (`/etc/vigil/whitelist.txt`) — filter trusted paths in maps, LD_PRELOAD, and exe
-- Process birth tracking — detect new processes appearing mid-game
-- eBPF tracepoints — kernel-level interception of `process_vm_readv` and `process_vm_writev` in real time
-- Async event reading via tokio — BPF events processed in background, /proc scan in main loop
+---
+
+*No corporate backing. No Windows port. No compromises.*
+*Built for Linux gamers, by a Linux gamer.*
+
+</div>
+
+## What is Vigil?
+
+Vigil is a kernel-level anti-cheat system built from the ground up for Linux. It combines real-time eBPF syscall interception with deep `/proc` filesystem analysis to detect cheats, memory injectors, debugger attachments, and rootkit-style kernel modules.
+
+There is no production-ready, open-source, Linux-native anti-cheat. FACEIT doesn't support Linux. ESEA doesn't support Linux. Riot Vanguard blocks Linux entirely. EAC and BattlEye offer degraded usermode-only support through Proton as an opt-in afterthought.
+
+Vigil fills that gap.
+
+## How It Works
+
+Vigil runs two detection layers in parallel:
+
+```
+                    +--------------------------+
+                    |       VIGIL CORE         |
+                    +--------------------------+
+                           /          \
+                          /            \
+            +----------------+    +------------------+
+            |  eBPF LAYER    |    |  /proc SCANNER   |
+            |  (kernel-level)|    |  (userspace)     |
+            +----------------+    +------------------+
+            | Tracepoints:   |    | 7 detection      |
+            | - vm_readv     |    | methods, polling |
+            | - vm_writev    |    | every 5 seconds  |
+            | - ptrace       |    | with dedup and   |
+            | - memfd_create |    | whitelist        |
+            +-------+--------+    +--------+---------+
+                    |                      |
+                    v                      v
+            +------------------------------------------+
+            |          PerfEventArray (per-CPU)         |
+            |       async tokio event processing        |
+            +------------------------------------------+
+                               |
+                               v
+                      [ ALERT / LOG ]
+```
+
+### Layer 1: eBPF Kernel Interception
+
+Tracepoints hooked directly into the kernel. Fires on every matching syscall in real time. No cheat can dodge this from userspace.
+
+| Tracepoint | Catches |
+|---|---|
+| `sys_enter_process_vm_readv` | Cross-process memory reads (external cheats reading game memory) |
+| `sys_enter_process_vm_writev` | Cross-process memory writes (injecting code/data into game) |
+| `sys_enter_ptrace` | Debugger attachment (PEEKDATA memory reads, breakpoints) |
+| `sys_enter_memfd_create` | Anonymous file creation (fileless code injection) |
+
+Events flow through a shared `PerfEventArray` map — one async reader per CPU core via tokio.
+
+### Layer 2: /proc Filesystem Scanner
+
+Polls every 5 seconds with deduplication. Seven independent detection methods:
+
+| Method | Source | Detects |
+|---|---|---|
+| TracerPid | `/proc/PID/status` | Process being debugged or traced |
+| Memory maps | `/proc/PID/maps` | Injected .so libraries, w+x permissions |
+| LD_PRELOAD | `/proc/PID/environ` | Library injection via environment variable |
+| Cmdline | `/proc/PID/cmdline` | Debugger tools (gdb, strace, ltrace) |
+| Exe path | `/proc/PID/exe` | Binaries running from suspicious dirs (/tmp, /dev/shm) |
+| File descriptors | `/proc/PID/fd` | Processes reading other processes' memory |
+| Kernel modules | `/proc/modules` | New/unloaded kernel modules (rootkit detection) |
+
+Plus: process birth/death tracking, parent PID analysis, and a configurable whitelist system (`/etc/vigil/whitelist.txt`).
+
+## Project Structure
+
+```
+vigil/                      Cargo workspace root
+|
++-- vigil/                  Userspace binary
+|   +-- src/
+|       +-- main.rs         Entry point, async main, eBPF init + monitoring loop
+|       +-- process.rs      Proc struct, ProcessStatus enum, Suspicious trait
+|       +-- scanner.rs      /proc parsing: maps, environ, cmdline, exe, fd, modules
+|       +-- ebpf.rs         BPF loading, PerfEventArray, async event reading
+|
++-- vigil-ebpf/             BPF kernel program (bpfel-unknown-none target)
+|   +-- src/
+|       +-- main.rs         Tracepoints: vm_readv, vm_writev, ptrace, memfd_create
+|
++-- vigil-common/           Shared types (kernel <-> userspace)
+    +-- src/
+        +-- lib.rs          SyscallEvent (#[repr(C)], no_std)
+```
+
+## Building
+
+```bash
+# Build the BPF kernel program (requires nightly + bpf-linker)
+cargo +nightly build -p vigil-ebpf --target bpfel-unknown-none -Z build-std=core --release
+
+# Build userspace
+cargo build -p vigil
+
+# Run (requires root for eBPF + /proc/PID/fd access)
+sudo ./target/debug/vigil
+```
+
+**Requirements:** Linux, root privileges, Rust nightly (for BPF compilation).
+
+## Quick Test
+
+Start Vigil, then from another terminal:
+
+```bash
+# Trigger process_vm_readv — Vigil should catch it instantly
+python3 -c "import ctypes; libc = ctypes.CDLL('libc.so.6'); libc.process_vm_readv(1, 0, 0, 0, 0, 0)"
+
+# Attach a debugger to any process — Vigil detects TracerPid change
+sudo strace -p $(pidof sleep) &
+```
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| Language | Rust |
+| Platform | Linux (native) |
+| Kernel layer | eBPF via [aya](https://github.com/aya-rs/aya) + aya-ebpf |
+| Async runtime | tokio |
+| Backend (planned) | Rust with Actix or Axum |
+| Frontend (planned) | egui |
+
+## How Linux Cheats Work
+
+Understanding the enemy:
+
+- **Memory reading** — `ptrace` or `/proc/PID/mem` to read game memory (player positions, health, weapon data). External cheats like [deadlocked](https://github.com/avitran0/deadlocked) use this approach.
+- **Library injection** — `LD_PRELOAD` or `dlopen` to inject code directly into the game process. Shows up in `/proc/PID/maps` and `/proc/PID/environ`.
+- **Cross-process memory access** — `process_vm_readv`/`writev` syscalls to read/write memory without ptrace. Harder to detect without kernel-level hooks.
+- **File modification** — Replacing game textures or shaders for wallhacks. Detected via file hash verification.
+- **Kernel modules** — Rootkit-style `.ko` modules that hide cheat processes from userspace entirely. Detected via `/proc/modules` monitoring.
+
+---
 
 ## Roadmap
 
-### Phase 1: Process Monitoring (current)
+### Phase 1: Process Monitoring
 - [x] Scan `/proc` for all running PIDs
 - [x] Parse `/proc/{PID}/status` — name, state, TracerPid
 - [x] Basic suspicion detection (name, status, TracerPid)
@@ -35,19 +194,19 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - [x] Detect LD_PRELOAD injection via `/proc/{PID}/environ`
 - [x] Parse `/proc/{PID}/cmdline` — detect suspicious launch arguments (gdb, strace, ltrace)
 - [x] Parse `/proc/{PID}/exe` — verify executable path legitimacy (symlink check + whitelist)
-- [x] Whitelist for trusted paths (~/.config/vigil/whitelist.txt — filters maps + LD_PRELOAD)
+- [x] Whitelist for trusted paths (`/etc/vigil/whitelist.txt` — filters maps + LD_PRELOAD)
 - [x] Process birth/death tracking (detect new processes appearing mid-game)
 
-### Phase 2: Deep Process Inspection
+### Phase 2: Deep Process Inspection *(in progress)*
 - [x] Monitor `/proc/{PID}/fd` — detect processes reading other processes memory
 - [x] Detect `process_vm_readv` usage via eBPF tracepoint (kernel-level, real-time)
 - [x] Detect `process_vm_writev` usage via eBPF tracepoint (kernel-level, real-time)
-- [x] Parent process tracking (PPid) — parsed from /proc/PID/status, suspicious tree detection TBD
+- [x] Parent process tracking (PPid) — parsed from /proc/PID/status
 - [x] `/proc/modules` scanning — detect new/unloaded kernel modules (birth/death tracking)
-- [x] Detect `ptrace` usage via eBPF tracepoint (`sys_enter_ptrace`) — catch PTRACE_PEEKDATA memory reads in real time
-- [x] Detect `memfd_create` usage via eBPF tracepoint — catch anonymous file creation for code injection
+- [x] Detect `ptrace` usage via eBPF tracepoint (`sys_enter_ptrace`)
+- [x] Detect `memfd_create` usage via eBPF tracepoint — catch anonymous file creation
 - [ ] Detect `/proc/PID/mem` writes via eBPF tracepoint — catch direct memory injection
-- [ ] Detect kernel module loading in real time via eBPF kprobe on `do_init_module` (replaces /proc/modules polling)
+- [ ] Detect kernel module loading in real time via eBPF kprobe on `do_init_module`
 - [ ] Detect known cheat signatures (hash database)
 - [ ] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 
@@ -78,59 +237,17 @@ Not a FACEIT competitor — an independent anti-cheat platform focused on Linux.
 - [ ] Player-facing client UI (system tray or terminal UI)
 - [ ] Account system and authentication
 
-### Phase 7: Advanced (long-term)
-- [ ] Custom kernel module for deeper monitoring (requires unsafe Rust / C)
+### Phase 7: Advanced
+- [ ] Custom kernel module for deeper monitoring
 - [ ] Machine learning for behavior analysis (mouse patterns, aim patterns)
 - [ ] Community rule database (crowdsourced cheat signatures)
 - [ ] Game developer SDK/API integration
 - [ ] Windows port (maybe, for fun)
 
-## Tech Stack
+---
 
-- **Language:** Rust
-- **Target OS:** Linux (primary), Windows (future maybe)
-- **Detection methods:** `/proc` filesystem, ptrace monitoring, library injection, LD_PRELOAD, eBPF syscall tracing
-- **Async runtime:** tokio (for eBPF event reading)
-- **eBPF:** aya + aya-ebpf (Rust-native BPF framework)
-- **Backend:** TBD (Rust with Actix/Axum)
-- **Frontend:** TBD (pure Rust with egui)
+<div align="center">
 
-## Project Structure
+*Vigil watches. Cheaters lose.*
 
-```
-vigil/                 — userspace binary (cargo workspace)
-  src/
-    main.rs            — entry point, async main, eBPF init + /proc monitoring loop
-    process.rs         — Proc struct, ProcessStatus enum, Suspicious trait
-    scanner.rs         — scan_processes(), get_process(), get_map(), check_preload(), get_cmdline(), get_exe(), get_fd(), get_whitelist()
-    ebpf.rs            — start_ebpf(), get_events(), read_events() — BPF loading + async event reading
-vigil-ebpf/            — BPF kernel program (compiled for bpfel-unknown-none)
-  src/
-    main.rs            — tracepoint for process_vm_readv, PerfEventArray for sending events
-vigil-common/          — shared types between kernel and userspace
-  src/
-    lib.rs             — SyscallEvent struct (#[repr(C)], no_std)
-```
-
-## How cheats work on Linux (research notes)
-
-- **Memory reading:** Cheats use ptrace or /proc/PID/mem to read game memory (player positions, health). Detected via TracerPid.
-- **Library injection:** LD_PRELOAD or dlopen to inject code into game process. Detected via /proc/PID/maps and /proc/PID/environ.
-- **Memory manipulation:** process_vm_readv/writev to read/write memory without ptrace. Harder to detect.
-- **File modification:** Replacing game textures/shaders for wallhack. Detected via file hash verification.
-- **Kernel modules:** Rootkit-style cheats that hide from userspace. Detected via /proc/modules monitoring.
-
-## Building
-
-```
-# build BPF program (needs nightly + bpf-linker)
-cargo +nightly build -p vigil-ebpf --target bpfel-unknown-none -Z build-std=core --release
-
-# build userspace
-cargo build -p vigil
-
-# run (needs sudo for eBPF + /proc/PID/fd access)
-sudo ./target/debug/vigil
-```
-
-Requires Linux. eBPF tracepoints require root. `/proc/PID/fd` monitoring requires elevated permissions.
+</div>
