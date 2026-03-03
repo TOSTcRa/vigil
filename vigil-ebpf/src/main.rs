@@ -54,3 +54,18 @@ fn trace_write(ctx: TracePointContext) -> u32 {
 
     0
 }
+
+#[tracepoint(name = "sys_enter_ptrace", category = "syscalls")]
+fn trace_ptrace(ctx: TracePointContext) -> u32 {
+    let pid_caller = (bpf_get_current_pid_tgid() >> 32) as i32;
+    if let Ok(pid_target) = unsafe { ctx.read_at::<i32>(24) } {
+        let event = SyscallEvent {
+            pid_caller,
+            pid_target,
+            syscall_type: 2,
+        };
+        EVENTS.output(&ctx, &event, 0);
+    }
+
+    0
+}

@@ -24,6 +24,13 @@ pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     write.load()?;
     write.attach("syscalls", "sys_enter_process_vm_writev")?;
 
+    let tp_ptrace = ebpf
+        .program_mut("trace_ptrace")
+        .ok_or("program not found")?;
+    let ptrace: &mut TracePoint = tp_ptrace.try_into()?;
+    ptrace.load()?;
+    ptrace.attach("syscalls", "sys_enter_ptrace")?;
+
     Ok(ebpf)
 }
 
