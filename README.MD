@@ -1,30 +1,15 @@
 <div align="center">
 
-```
-VVVVVVVV           VVVVVVVV iiii                        iiii  lllllll
-V::::::V           V::::::Vi::::i                      i::::i l:::::l
-V::::::V           V::::::V iiii                        iiii  l:::::l
-V::::::V           V::::::V                                   l:::::l
- V:::::V           V:::::Viiiiiii    ggggggggg   gggggiiiiiii  l::::l
-  V:::::V         V:::::V i:::::i   g:::::::::ggg::::gi:::::i  l::::l
-   V:::::V       V:::::V   i::::i  g:::::::::::::::::g i::::i  l::::l
-    V:::::V     V:::::V    i::::i g::::::ggggg::::::gg i::::i  l::::l
-     V:::::V   V:::::V     i::::i g:::::g     g:::::g  i::::i  l::::l
-      V:::::V V:::::V      i::::i g:::::g     g:::::g  i::::i  l::::l
-       V:::::V:::::V       i::::i g:::::g     g:::::g  i::::i  l::::l
-        V:::::::::V        i::::i g::::::g    g:::::g  i::::i  l::::l
-         V:::::::V        i::::::ig:::::::ggggg:::::g i::::::il::::::l
-          V:::::V         i::::::i g::::::::::::::::g i::::::il::::::l
-           V:::V          i::::::i  gg::::::::::::::g i::::::il::::::l
-            VVV           iiiiiiii    gggggggg::::::g iiiiiiiillllllll
-                                              g:::::g
-                                  gggggg      g:::::g
-                                  g:::::gg   gg:::::g
-                                   g::::::ggg:::::::g
-                                    gg:::::::::::::g
-                                      ggg::::::ggg
-                                         gggggg
-```
+<pre>
+ __      __ _         _  _
+ \ \    / /(_)       (_)| |
+  \ \  / /  _   __ _  _ | |
+   \ \/ /  | | / _` || || |
+    \  /   | || (_| || || |
+     \/    |_| \__, ||_||_|
+                __/ |
+               |___/
+</pre>
 
 **Linux-native anti-cheat for competitive gaming.**
 
