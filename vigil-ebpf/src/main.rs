@@ -69,3 +69,16 @@ fn trace_ptrace(ctx: TracePointContext) -> u32 {
 
     0
 }
+
+#[tracepoint(name = "sys_enter_memfd_create", category = "syscalls")]
+fn trace_memfd(ctx: TracePointContext) -> u32 {
+    let pid_caller = (bpf_get_current_pid_tgid() >> 32) as i32;
+    let event = SyscallEvent {
+        pid_caller,
+        pid_target: 0,
+        syscall_type: 3,
+    };
+    EVENTS.output(&ctx, &event, 0);
+
+    0
+}

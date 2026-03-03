@@ -31,6 +31,11 @@ pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
     ptrace.load()?;
     ptrace.attach("syscalls", "sys_enter_ptrace")?;
 
+    let tp_memfd = ebpf.program_mut("trace_memfd").ok_or("program not found")?;
+    let memfd: &mut TracePoint = tp_memfd.try_into()?;
+    memfd.load()?;
+    memfd.attach("syscalls", "sys_enter_memfd_create")?;
+
     Ok(ebpf)
 }
 
