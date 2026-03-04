@@ -204,7 +204,7 @@ Understanding the enemy:
 
 ### Phase 3: System-Level Detection
 - [ ] dmesg log monitoring for suspicious kernel activity
-- [ ] Network traffic analysis — detect cheat communication with external servers
+- [x] Network traffic analysis — per-process TCP connection monitoring via `/proc/net/tcp` + inode matching
 - [ ] Game file hash verification (detect modified game files)
 - [ ] Sandboxing detection (is the game running in a compromised environment?)
 - [ ] inotify watching for suspicious file changes in game directories

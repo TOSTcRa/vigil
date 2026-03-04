@@ -2,8 +2,8 @@ use crate::{
     ebpf::{get_events, read_events, start_ebpf},
     process::{Proc, Suspicious},
     scanner::{
-        check_hash, get_cheat_db, get_cross_traces, get_fd, get_map, get_modules, get_process,
-        get_whitelist, scan_processes,
+        check_hash, get_cheat_db, get_connections, get_cross_traces, get_fd, get_inode, get_map,
+        get_modules, get_process, get_whitelist, scan_processes,
     },
 };
 
@@ -103,6 +103,16 @@ V::::::V           V::::::V                                   l:::::l
                         && !val.is_empty()
                     {
                         println!("Process {}, reading other process memory: {:?}", pid, val);
+                    }
+
+                    if let Ok(inodes) = get_inode(pid)
+                        && !inodes.is_empty()
+                    {
+                        if let Ok(connections) = get_connections(&inodes) {
+                            for conn in &connections {
+                                println!("[NET] pid {} has connection: {}", pid, conn);
+                            }
+                        }
                     }
 
                     if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
