@@ -113,6 +113,8 @@ vigil/                      Cargo workspace root
 |       +-- main.rs         Entry point, async main, eBPF init + monitoring loop
 |       +-- process.rs      Proc struct, ProcessStatus enum, Suspicious trait
 |       +-- scanner.rs      /proc parsing: maps, environ, cmdline, exe, fd, modules
+|       +-- config.rs       Whitelist + cheat hash database loading and matching
+|       +-- network.rs      Socket inode extraction + TCP connection matching
 |       +-- ebpf.rs         BPF loading, PerfEventArray, async event reading
 |
 +-- vigil-ebpf/             BPF kernel program (bpfel-unknown-none target)

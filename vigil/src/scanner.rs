@@ -1,76 +1,5 @@
 use crate::process::{Proc, ProcessStatus};
-use sha2::{Digest, Sha256};
-
-pub struct CheatEntry {
-    pub hash: String,
-    pub name: String,
-    pub category: String,
-    pub description: String,
-}
-
-pub fn get_cheat_db() -> std::io::Result<Vec<CheatEntry>> {
-    let path = "/etc/vigil/cheat_hashes.txt";
-    let content = std::fs::read_to_string(path)?;
-    let mut res = vec![];
-
-    for line in content.lines() {
-        if line.is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = line.splitn(4, ':').collect();
-        if parts.len() == 4 {
-            res.push(CheatEntry {
-                hash: parts[0].to_string(),
-                name: parts[1].to_string(),
-                category: parts[2].to_string(),
-                description: parts[3].to_string(),
-            });
-        }
-    }
-
-    Ok(res)
-}
-
-pub fn check_hash(
-    pid: u64,
-    cheat_db: &[CheatEntry],
-) -> std::io::Result<Option<(String, String, String)>> {
-    let exe_path = format!("/proc/{}/exe", pid);
-    let real_path = std::fs::read_link(&exe_path)?;
-
-    let exe_name = real_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-    for entry in cheat_db {
-        if entry.hash == "name_only" && exe_name == entry.name {
-            return Ok(Some((
-                entry.name.clone(),
-                entry.category.clone(),
-                entry.description.clone(),
-            )));
-        }
-    }
-
-    let has_hash_entries = cheat_db.iter().any(|e| e.hash != "name_only");
-
-    if has_hash_entries {
-        let binary = std::fs::read(&real_path)?;
-        let mut hasher = Sha256::new();
-        hasher.update(&binary);
-        let hash = format!("{:x}", hasher.finalize());
-
-        for entry in cheat_db {
-            if entry.hash != "name_only" && hash == entry.hash {
-                return Ok(Some((
-                    entry.name.clone(),
-                    entry.category.clone(),
-                    entry.description.clone(),
-                )));
-            }
-        }
-    }
-
-    Ok(None)
-}
+use std::collections::{HashMap, HashSet};
 
 // reads /proc directory and collects all numeric folder names (those are PIDs)
 // non-numeric entries (like /proc/cpuinfo, /proc/net) are skipped
@@ -162,7 +91,7 @@ pub fn get_process(pid: u64, whitelist: &[String]) -> std::io::Result<Proc> {
 // uses HashSet to avoid reporting same library twice
 pub fn get_map(
     pid: u64,
-    found_maps: &mut std::collections::HashSet<String>,
+    found_maps: &mut HashSet<String>,
     whitelist: &[String],
 ) -> std::io::Result<Vec<(String, String)>> {
     let mut res: Vec<(String, String)> = vec![];
@@ -172,8 +101,8 @@ pub fn get_map(
         if !line.contains(".so") {
             continue;
         }
-        let splited: Vec<&str> = line.split_whitespace().collect();
-        if let Some(path) = splited.last()
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if let Some(path) = parts.last()
             && !found_maps.contains(*path)
         {
             if whitelist
@@ -183,16 +112,16 @@ pub fn get_map(
                 found_maps.insert(path.to_string());
                 continue;
             }
-            if splited[1].contains("w") && splited[1].contains("x") {
+            if parts[1].contains("w") && parts[1].contains("x") {
                 res.push((
                     path.to_string(),
-                    String::from("Proces has w and x rights at the same time"),
+                    String::from("Process has w and x rights at the same time"),
                 ));
             }
             if path.contains("/home/") || path.contains("/tmp/") || path.contains("/dev/shm/") {
                 res.push((
                     path.to_string(),
-                    String::from("Proces was launched from non standart dir"),
+                    String::from("Process was launched from non standard dir"),
                 ));
             }
             found_maps.insert(path.to_string());
@@ -210,9 +139,8 @@ pub fn get_map(
 pub fn check_preload(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>> {
     let path = format!("/proc/{}/environ", pid);
     let content = std::fs::read_to_string(path)?;
-    let splited: Vec<&str> = content.split('\0').collect();
-    for line in splited {
-        if let Some((key, value)) = line.split_once("=")
+    for part in content.split('\0') {
+        if let Some((key, value)) = part.split_once("=")
             && key == "LD_PRELOAD"
         {
             let is_whitelisted = whitelist
@@ -235,21 +163,6 @@ pub fn get_cmdline(pid: u64) -> std::io::Result<String> {
     let path = format!("/proc/{}/cmdline", pid);
     let content = std::fs::read_to_string(path)?;
     Ok(content.replace('\0', " "))
-}
-
-// loads trusted path patterns from /etc/vigil/whitelist.txt
-// each line is a pattern (like "/usr/lib/", ".config/", "libmozsandbox.so")
-// used by get_map and check_preload to skip known-safe libraries
-// if file doesnt exist -> unwrap_or_default() in main gives empty vec (no whitelist)
-pub fn get_whitelist() -> std::io::Result<Vec<String>> {
-    let mut res: Vec<String> = vec![];
-    let path = "/etc/vigil/whitelist.txt";
-    let content = std::fs::read_to_string(path)?;
-    for line in content.lines() {
-        res.push(line.to_string());
-    }
-
-    Ok(res)
 }
 
 // reads /proc/PID/exe symlink — points to the real binary path
@@ -305,23 +218,27 @@ pub fn get_fd(pid: u64) -> std::io::Result<Vec<u64>> {
     Ok(res)
 }
 
+// reads /proc/modules — list of currently loaded kernel modules
+// each line starts with module name followed by whitespace-separated fields
+// returns vec of module names for birth/death tracking in main loop
 pub fn get_modules() -> std::io::Result<Vec<String>> {
     let content = std::fs::read_to_string("/proc/modules")?;
     let mut res: Vec<String> = vec![];
 
     for line in content.lines() {
-        let splited: Vec<&str> = line.split_whitespace().collect();
+        let parts: Vec<&str> = line.split_whitespace().collect();
 
-        res.push(splited[0].to_string());
+        res.push(parts[0].to_string());
     }
 
     Ok(res)
 }
 
-pub fn get_cross_traces(
-    procs: &[Proc],
-) -> std::io::Result<std::collections::HashMap<u64, Vec<u64>>> {
-    let mut res: std::collections::HashMap<u64, Vec<u64>> = std::collections::HashMap::new();
+// builds a map of tracer_pid -> vec of traced pids from all scanned processes
+// if multiple processes are being traced by the same tracer — thats suspicious
+// used in main loop to detect mass-tracing (one process debugging many others)
+pub fn get_cross_traces(procs: &[Proc]) -> HashMap<u64, Vec<u64>> {
+    let mut res: HashMap<u64, Vec<u64>> = HashMap::new();
 
     for p in procs {
         let tracer_pid: u64 = *p.get_tracer_pid();
@@ -332,54 +249,5 @@ pub fn get_cross_traces(
         }
     }
 
-    Ok(res)
-}
-
-pub fn get_inode(pid: u64) -> std::io::Result<Vec<u64>> {
-    let path = format!("/proc/{}/fd", pid);
-    let dir = std::fs::read_dir(path)?;
-    let mut res: Vec<u64> = vec![];
-    for entry in dir {
-        let entry = entry?;
-        let content = std::fs::read_link(entry.path())?;
-        let symlink = content.to_string_lossy();
-
-        if symlink.starts_with("socket:[") {
-            let item = symlink.trim_start_matches("socket:[").trim_end_matches("]");
-            if item.is_empty() {
-                continue;
-            }
-
-            if let Ok(num) = item.parse::<u64>() {
-                res.push(num);
-            }
-        }
-    }
-    Ok(res)
-}
-
-pub fn get_connections(inodes: &[u64]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let mut res: Vec<String> = vec![];
-    let path = "/proc/net/tcp";
-    let content = std::fs::read_to_string(path)?;
-    for line in content.lines() {
-        let splited: Vec<&str> = line.split_whitespace().collect();
-        if splited[0] == "sl" {
-            continue;
-        }
-        if splited[2] == "00000000:0000" {
-            continue;
-        }
-        let line_inode = splited[9].parse::<u64>()?;
-        if inodes.contains(&line_inode) {
-            let splited_addr: Vec<&str> = splited[2].split(":").collect();
-            let ip_be = u32::from_str_radix(splited_addr[0], 16)?;
-            let ip_arr = ip_be.to_be_bytes();
-            let ip = format!("{}.{}.{}.{}", ip_arr[0], ip_arr[1], ip_arr[2], ip_arr[3]);
-            let port = u16::from_str_radix(splited_addr[1], 16)?;
-            res.push(format!("{}:{}", ip, port));
-        }
-    }
-
-    Ok(res)
+    res
 }

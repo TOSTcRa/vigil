@@ -1,13 +1,18 @@
+use std::collections::HashSet;
+
 use crate::{
+    config::{check_hash, get_cheat_db, get_whitelist},
     ebpf::{get_events, read_events, start_ebpf},
+    network::{get_connections, get_inode},
     process::{Proc, Suspicious},
     scanner::{
-        check_hash, get_cheat_db, get_connections, get_cross_traces, get_fd, get_inode, get_map,
-        get_modules, get_process, get_whitelist, scan_processes,
+        get_cross_traces, get_fd, get_map, get_modules, get_process, scan_processes,
     },
 };
 
+mod config;
 mod ebpf;
+mod network;
 mod process;
 mod scanner;
 
@@ -29,10 +34,10 @@ mod scanner;
 
 #[tokio::main]
 async fn main() {
-    let mut history: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let mut module_history: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut found: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let mut found_maps: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut history: HashSet<u64> = HashSet::new();
+    let mut module_history: HashSet<String> = HashSet::new();
+    let mut found: HashSet<u64> = HashSet::new();
+    let mut found_maps: HashSet<String> = HashSet::new();
     let mut procs: Vec<Proc> = vec![];
 
     let whitelist = get_whitelist().unwrap_or_default();
@@ -42,31 +47,31 @@ async fn main() {
     let mut _active_ebpf = None;
 
     println!(
-        r#" 
-                                                                                 
-                                                                           
-VVVVVVVV           VVVVVVVV iiii                        iiii  lllllll      
-V::::::V           V::::::Vi::::i                      i::::i l:::::l      
-V::::::V           V::::::V iiii                        iiii  l:::::l      
-V::::::V           V::::::V                                   l:::::l      
- V:::::V           V:::::Viiiiiii    ggggggggg   gggggiiiiiii  l::::l      
-  V:::::V         V:::::V i:::::i   g:::::::::ggg::::gi:::::i  l::::l      
-   V:::::V       V:::::V   i::::i  g:::::::::::::::::g i::::i  l::::l      
-    V:::::V     V:::::V    i::::i g::::::ggggg::::::gg i::::i  l::::l      
-     V:::::V   V:::::V     i::::i g:::::g     g:::::g  i::::i  l::::l      
-      V:::::V V:::::V      i::::i g:::::g     g:::::g  i::::i  l::::l      
-       V:::::V:::::V       i::::i g:::::g     g:::::g  i::::i  l::::l      
-        V:::::::::V        i::::i g::::::g    g:::::g  i::::i  l::::l      
-         V:::::::V        i::::::ig:::::::ggggg:::::g i::::::il::::::l     
-          V:::::V         i::::::i g::::::::::::::::g i::::::il::::::l     
-           V:::V          i::::::i  gg::::::::::::::g i::::::il::::::l     
-            VVV           iiiiiiii    gggggggg::::::g iiiiiiiillllllll     
-                                              g:::::g                      
-                                  gggggg      g:::::g                      
-                                  g:::::gg   gg:::::g                      
-                                   g::::::ggg:::::::g                      
-                                    gg:::::::::::::g                       
-                                      ggg::::::ggg                         
+        r#"
+
+
+VVVVVVVV           VVVVVVVV iiii                        iiii  lllllll
+V::::::V           V::::::Vi::::i                      i::::i l:::::l
+V::::::V           V::::::V iiii                        iiii  l:::::l
+V::::::V           V::::::V                                   l:::::l
+ V:::::V           V:::::Viiiiiii    ggggggggg   gggggiiiiiii  l::::l
+  V:::::V         V:::::V i:::::i   g:::::::::ggg::::gi:::::i  l::::l
+   V:::::V       V:::::V   i::::i  g:::::::::::::::::g i::::i  l::::l
+    V:::::V     V:::::V    i::::i g::::::ggggg::::::gg i::::i  l::::l
+     V:::::V   V:::::V     i::::i g:::::g     g:::::g  i::::i  l::::l
+      V:::::V V:::::V      i::::i g:::::g     g:::::g  i::::i  l::::l
+       V:::::V:::::V       i::::i g:::::g     g:::::g  i::::i  l::::l
+        V:::::::::V        i::::i g::::::g    g:::::g  i::::i  l::::l
+         V:::::::V        i::::::ig:::::::ggggg:::::g i::::::il::::::l
+          V:::::V         i::::::i g::::::::::::::::g i::::::il::::::l
+           V:::V          i::::::i  gg::::::::::::::g i::::::il::::::l
+            VVV           iiiiiiii    gggggggg::::::g iiiiiiiillllllll
+                                              g:::::g
+                                  gggggg      g:::::g
+                                  g:::::gg   gg:::::g
+                                   g::::::ggg:::::::g
+                                    gg:::::::::::::g
+                                      ggg::::::ggg
                                          gggggg
       "#
     );
@@ -139,14 +144,13 @@ V::::::V           V::::::V                                   l:::::l
                 }
             }
 
-            if let Ok(cross_traced) = get_cross_traces(&procs) {
-                for (tracer, targets) in &cross_traced {
-                    if targets.len() > 1 {
-                        println!(
-                            "There is some tracer with pid: {:?} that traces more than 1 process: {:?}",
-                            tracer, targets
-                        );
-                    }
+            let cross_traced = get_cross_traces(&procs);
+            for (tracer, targets) in &cross_traced {
+                if targets.len() > 1 {
+                    println!(
+                        "There is some tracer with pid: {:?} that traces more than 1 process: {:?}",
+                        tracer, targets
+                    );
                 }
             }
 
@@ -154,7 +158,7 @@ V::::::V           V::::::V                                   l:::::l
         }
 
         if let Ok(modules) = get_modules() {
-            let current_modules: std::collections::HashSet<String> = modules.into_iter().collect();
+            let current_modules: HashSet<String> = modules.into_iter().collect();
 
             if !first_run {
                 for new_mod in current_modules.difference(&module_history) {

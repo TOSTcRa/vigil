@@ -17,13 +17,13 @@ pub trait Suspicious {
 #[derive(Debug)]
 pub struct Proc {
     name: String,
-    _pid: u64,
+    pid: u64,
     status: ProcessStatus,
     tracer_pid: u64,
     preload_path: Option<String>,
     cmdline: String,
     exe_path: Option<String>,
-    _ppid: u64,
+    ppid: u64,
 }
 
 // possible states from /proc/PID/status "State" field
@@ -43,23 +43,23 @@ impl Proc {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
-        _pid: u64,
+        pid: u64,
         status: ProcessStatus,
         tracer_pid: u64,
         preload_path: Option<String>,
         cmdline: String,
         exe_path: Option<String>,
-        _ppid: u64,
+        ppid: u64,
     ) -> Self {
         Self {
             name,
-            _pid,
+            pid,
             status,
             tracer_pid,
             preload_path,
             cmdline,
             exe_path,
-            _ppid,
+            ppid,
         }
     }
 
@@ -68,7 +68,7 @@ impl Proc {
     }
 
     pub fn get_pid(&self) -> &u64 {
-        &self._pid
+        &self.pid
     }
 }
 
