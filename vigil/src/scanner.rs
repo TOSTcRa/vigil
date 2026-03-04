@@ -1,5 +1,8 @@
 use crate::process::{Proc, ProcessStatus};
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use crate::kernel_log::Log;
 
 // reads /proc directory and collects all numeric folder names (those are PIDs)
 // non-numeric entries (like /proc/cpuinfo, /proc/net) are skipped
@@ -250,4 +253,20 @@ pub fn get_cross_traces(procs: &[Proc]) -> HashMap<u64, Vec<u64>> {
     }
 
     res
+}
+
+pub fn get_kernel_logs(callback: impl Fn(Log)) -> std::io::Result<()>{
+    let f = File::open("/dev/kmsg")?;
+    let mut reader = BufReader::new(f);
+
+    for line in reader.lines() {
+        let line = line?;
+        let semi_split = line.split(';').collect::<Vec<&str>>();
+        let comma_split = semi_split[0].split(',').collect::<Vec<&str>>();
+
+        let log = Log::new(comma_split[0].parse().unwrap(), comma_split[1].parse().unwrap(), comma_split[2].parse().unwrap(), semi_split[1].into());
+        callback(log);
+    }
+
+    Ok(())
 }

@@ -15,7 +15,7 @@ mod ebpf;
 mod network;
 mod process;
 mod scanner;
-
+mod kernel_log;
 // vigil anti-cheat — two detection layers running in parallel:
 // 1. eBPF tracepoint — kernel-level hook catches every process_vm_readv call in real time
 //    loaded at startup via start_ebpf(), events read async via tokio::spawn per CPU
