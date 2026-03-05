@@ -19,7 +19,7 @@ Written in Rust. Powered by eBPF.
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust)](#)
 [![eBPF](https://img.shields.io/badge/kernel-eBPF-red)](#)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](#)
-[![Status](https://img.shields.io/badge/status-Phase%202-brightgreen)](#)
+[![Status](https://img.shields.io/badge/status-Phase%203-blue)](#)
 
 ---
 
