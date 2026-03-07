@@ -64,7 +64,7 @@ Vigil runs two detection layers in parallel:
             +------------------------------------------+
                                |
                                v
-                      [ ALERT / LOG ]
+                        [ ALERT / LOG ]
 ```
 
 ### Layer 1: eBPF Kernel Interception
@@ -205,9 +205,9 @@ Understanding the enemy:
 - [x] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 
 ### Phase 3: System-Level Detection
-- [ ] dmesg log monitoring for suspicious kernel activity
+- [x] dmesg log monitoring for suspicious kernel activity
 - [x] Network traffic analysis — per-process TCP connection monitoring via `/proc/net/tcp` + inode matching
-- [ ] Game file hash verification (detect modified game files)
+- [x] Game file hash verification (detect modified game files)
 - [ ] Sandboxing detection (is the game running in a compromised environment?)
 - [ ] inotify watching for suspicious file changes in game directories
 

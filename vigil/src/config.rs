@@ -1,4 +1,6 @@
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::path::Path;
 
 pub struct CheatEntry {
     pub hash: String,
@@ -95,4 +97,96 @@ pub fn check_hash(
     }
 
     Ok(None)
+}
+
+pub struct FileChanges {
+    pub modified: Vec<String>,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
+impl FileChanges {
+    pub fn total(&self) -> usize {
+        self.modified.len() + self.added.len() + self.removed.len()
+    }
+
+    pub fn is_suspicious(&self) -> bool {
+        self.total() > 0 && self.total() <= 2
+    }
+}
+
+pub fn get_game_dir() -> std::io::Result<String> {
+    let content = std::fs::read_to_string("/etc/vigil/game_dir.txt")?;
+    Ok(content.trim().to_string())
+}
+
+pub fn scan_game_dir(dir: &str) -> std::io::Result<HashMap<String, String>> {
+    let mut result = HashMap::new();
+    scan_dir_recursive(Path::new(dir), &mut result)?;
+    Ok(result)
+}
+
+fn scan_dir_recursive(dir: &Path, result: &mut HashMap<String, String>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            scan_dir_recursive(&path, result)?;
+        } else {
+            let bytes = std::fs::read(&path)?;
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let hash = format!("{:x}", hasher.finalize());
+            result.insert(path.to_string_lossy().to_string(), hash);
+        }
+    }
+    Ok(())
+}
+
+pub fn load_baseline(path: &str) -> std::io::Result<HashMap<String, String>> {
+    let content = std::fs::read_to_string(path)?;
+    let mut result = HashMap::new();
+    for line in content.lines() {
+        if let Some((hash, file_path)) = line.split_once(':') {
+            result.insert(file_path.to_string(), hash.to_string());
+        }
+    }
+    Ok(result)
+}
+
+pub fn save_baseline(path: &str, hashes: &HashMap<String, String>) -> std::io::Result<()> {
+    let mut content = String::new();
+    for (file_path, hash) in hashes {
+        content.push_str(&format!("{}:{}\n", hash, file_path));
+    }
+    std::fs::write(path, content)
+}
+
+pub fn compare_hashes(
+    baseline: &HashMap<String, String>,
+    current: &HashMap<String, String>,
+) -> FileChanges {
+    let mut modified = vec![];
+    let mut added = vec![];
+    let mut removed = vec![];
+
+    for (path, hash) in current {
+        match baseline.get(path) {
+            Some(old_hash) if old_hash != hash => modified.push(path.clone()),
+            None => added.push(path.clone()),
+            _ => {}
+        }
+    }
+
+    for path in baseline.keys() {
+        if !current.contains_key(path) {
+            removed.push(path.clone());
+        }
+    }
+
+    FileChanges {
+        modified,
+        added,
+        removed,
+    }
 }

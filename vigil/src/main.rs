@@ -1,7 +1,12 @@
 use std::collections::HashSet;
 
+use std::collections::HashMap;
+
 use crate::{
-    config::{check_hash, get_cheat_db, get_whitelist},
+    config::{
+        check_hash, compare_hashes, get_cheat_db, get_game_dir, get_whitelist, load_baseline,
+        save_baseline, scan_game_dir,
+    },
     ebpf::{get_events, read_events, start_ebpf},
     network::{get_connections, get_inode},
     process::{Proc, Suspicious},
@@ -45,6 +50,29 @@ async fn main() {
     let mut first_run = true;
 
     let mut _active_ebpf = None;
+
+    let baseline_path = "/etc/vigil/game_baseline.txt";
+    let mut game_baseline: HashMap<String, String> = HashMap::new();
+    let mut game_dir: Option<String> = None;
+    let mut integrity_counter: u32 = 0;
+
+    if let Ok(dir) = get_game_dir() {
+        match load_baseline(baseline_path) {
+            Ok(bl) => {
+                println!("[INTEGRITY] Baseline loaded ({} files)", bl.len());
+                game_baseline = bl;
+            }
+            Err(_) => {
+                println!("[INTEGRITY] No baseline found, creating...");
+                if let Ok(hashes) = scan_game_dir(&dir) {
+                    println!("[INTEGRITY] Baseline created ({} files)", hashes.len());
+                    let _ = save_baseline(baseline_path, &hashes);
+                    game_baseline = hashes;
+                }
+            }
+        }
+        game_dir = Some(dir);
+    }
 
     println!(
         r#"
@@ -171,6 +199,41 @@ V::::::V           V::::::V                                   l:::::l
             }
 
             module_history = current_modules;
+        }
+
+        if let Some(ref dir) = game_dir {
+            integrity_counter += 1;
+            if integrity_counter >= 12 {
+                integrity_counter = 0;
+                if let Ok(current) = scan_game_dir(dir) {
+                    let changes = compare_hashes(&game_baseline, &current);
+                    if changes.total() > 0 {
+                        for f in &changes.modified {
+                            println!("[INTEGRITY] Modified: {}", f);
+                        }
+                        for f in &changes.added {
+                            println!("[INTEGRITY] Added: {}", f);
+                        }
+                        for f in &changes.removed {
+                            println!("[INTEGRITY] Removed: {}", f);
+                        }
+
+                        if changes.is_suspicious() {
+                            println!(
+                                "[INTEGRITY] SUSPICIOUS — only {} file(s) changed",
+                                changes.total()
+                            );
+                        } else {
+                            println!(
+                                "[INTEGRITY] {} files changed — likely a game update, resaving baseline",
+                                changes.total()
+                            );
+                            let _ = save_baseline(baseline_path, &current);
+                            game_baseline = current;
+                        }
+                    }
+                }
+            }
         }
 
         first_run = false;
