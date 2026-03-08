@@ -213,11 +213,15 @@ Understanding the enemy:
 - [x] Real-time inotify file watcher for game directories (replaces polling, auto-watches new subdirs)
 
 ### Phase 4: Daemon & Service
-- [ ] Run Vigil as a systemd service/daemon
-- [ ] Configuration file (what game to protect, scan interval, rules)
-- [ ] Logging system (write scan results to files, timestamps)
-- [ ] CLI interface (start/stop monitoring, show status, show suspicious processes)
-- [ ] Signal handling (graceful shutdown)
+- [x] Configuration file (`/etc/vigil/config.toml` — TOML with serde, game path + log path)
+- [x] Logging system (unified `log()` with chrono timestamps, LogLevel enum, file + console output)
+- [x] CLI interface (`vigil scan` one-time scan, `vigil check` game integrity, `vigil status` diagnostics, clap)
+- [x] Signal handling (graceful shutdown via `tokio::select!` + `ctrl_c()`, logs exit event)
+- [ ] OpenRC init script (primary — tostcr)
+- [ ] systemd service file (nnnm's task)
+- [ ] *(optional)* dinit service file
+- [ ] *(optional)* runit run script
+- [ ] *(optional)* s6 service directory
 
 ### Phase 5: Reporting & Backend
 - [ ] Local report generation (JSON/structured output)

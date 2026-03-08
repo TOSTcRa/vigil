@@ -9,10 +9,7 @@ use tokio_stream::StreamExt;
 // When a new subdirectory appears, automatically adds a watch on it
 // Modified files are hashed and compared against baseline to detect tampering
 
-pub async fn watch_game_dir(
-    dir: String,
-    baseline: HashMap<String, String>,
-) -> std::io::Result<()> {
+pub async fn watch_game_dir(dir: String, baseline: HashMap<String, String>) -> std::io::Result<()> {
     let inotify = Inotify::init()?;
 
     let mut wd_to_path: HashMap<WatchDescriptor, PathBuf> = HashMap::new();

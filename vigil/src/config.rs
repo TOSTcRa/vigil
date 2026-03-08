@@ -1,5 +1,8 @@
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 
 pub struct CheatEntry {
@@ -7,6 +10,60 @@ pub struct CheatEntry {
     pub name: String,
     pub category: String,
     pub description: String,
+}
+
+pub enum LogLevel {
+    Alert,
+    Cheat,
+    Net,
+    Inotify,
+    Info,
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLevel::Alert => write!(f, "[ALERT]"),
+            LogLevel::Cheat => write!(f, "[CHEAT]"),
+            LogLevel::Net => write!(f, "[NET]"),
+            LogLevel::Inotify => write!(f, "[INOTIFY]"),
+            LogLevel::Info => write!(f, "[INFO]"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Config {
+    pub game: GameConfig,
+    pub logging: LogConfig,
+}
+
+#[derive(Deserialize)]
+pub struct GameConfig {
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+pub struct LogConfig {
+    pub path: String,
+}
+
+pub fn get_config() -> Result<Config, Box<dyn std::error::Error>> {
+    let config_path = std::fs::read_to_string("/etc/vigil/config.toml")?;
+
+    Ok(toml::from_str(&config_path)?)
+}
+
+pub fn log(level: LogLevel, message: &str, path: &str) -> std::io::Result<()> {
+    let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let line = format!("{} {} {}", time, level, message);
+    println!("{}", line);
+
+    let mut config_file = OpenOptions::new().append(true).create(true).open(path)?;
+
+    writeln!(config_file, "{}", line)?;
+
+    Ok(())
 }
 
 // loads trusted path patterns from /etc/vigil/whitelist.txt

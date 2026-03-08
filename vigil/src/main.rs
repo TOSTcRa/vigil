@@ -2,11 +2,15 @@ use std::collections::HashSet;
 
 use std::collections::HashMap;
 
+use clap::Parser;
+
+use crate::cli::{Cli, Commands, cmd_check, cmd_init, cmd_scan, cmd_status};
+use crate::kernel_log::{get_kernel_logs, parse_kernel_log};
 use crate::scanner::check_sandbox;
 use crate::{
     config::{
-        check_hash, get_cheat_db, get_game_dir, get_whitelist, load_baseline,
-        save_baseline, scan_game_dir,
+        LogLevel, check_hash, compare_hashes, get_cheat_db, get_config, get_game_dir,
+        get_whitelist, load_baseline, log, save_baseline, scan_game_dir,
     },
     ebpf::{get_events, read_events, start_ebpf},
     network::{get_connections, get_inode},
@@ -14,6 +18,7 @@ use crate::{
     scanner::{get_cross_traces, get_fd, get_map, get_modules, get_process, scan_processes},
 };
 
+mod cli;
 mod config;
 mod ebpf;
 mod kernel_log;
@@ -39,6 +44,19 @@ mod scanner;
 
 #[tokio::main]
 async fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Scan) => cmd_scan(),
+        Some(Commands::Check) => cmd_check(),
+        Some(Commands::Status) => cmd_status(),
+        Some(Commands::Init) => cmd_init(),
+        None => run_daemon().await,
+    }
+}
+
+// vigil (no args) — full daemon: eBPF + /proc loop + inotify + kernel log monitor
+async fn run_daemon() {
     let mut history: HashSet<u64> = HashSet::new();
     let mut module_history: HashSet<String> = HashSet::new();
     let mut found: HashSet<u64> = HashSet::new();
@@ -51,24 +69,96 @@ async fn main() {
 
     let mut _active_ebpf = None;
 
+    let config = match get_config() {
+        Ok(c) => {
+            println!("[CONFIG] Loaded /etc/vigil/config.toml");
+            Some(c)
+        }
+        Err(e) => {
+            eprintln!("[CONFIG] Failed to load config: {} — using defaults", e);
+            None
+        }
+    };
+
+    let log_path = config
+        .as_ref()
+        .map(|c| c.logging.path.clone())
+        .unwrap_or_else(|| String::from("/var/log/vigil.log"));
+
+    let game_path_from_config = config.as_ref().map(|c| c.game.path.clone());
+
     let baseline_path = "/etc/vigil/game_baseline.txt";
     let mut game_baseline: HashMap<String, String> = HashMap::new();
     let mut game_dir: Option<String> = None;
-    if let Ok(dir) = get_game_dir() {
+
+    let dir_result = game_path_from_config
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no config"))
+        .or_else(|_| get_game_dir());
+
+    if let Ok(dir) = dir_result {
         match load_baseline(baseline_path) {
             Ok(bl) => {
-                println!("[INTEGRITY] Baseline loaded ({} files)", bl.len());
+                let _ = log(
+                    LogLevel::Info,
+                    &format!("Baseline loaded ({} files)", bl.len()),
+                    &log_path,
+                );
                 game_baseline = bl;
             }
             Err(_) => {
-                println!("[INTEGRITY] No baseline found, creating...");
+                let _ = log(LogLevel::Info, "No baseline found, creating...", &log_path);
                 if let Ok(hashes) = scan_game_dir(&dir) {
-                    println!("[INTEGRITY] Baseline created ({} files)", hashes.len());
+                    let _ = log(
+                        LogLevel::Info,
+                        &format!("Baseline created ({} files)", hashes.len()),
+                        &log_path,
+                    );
                     let _ = save_baseline(baseline_path, &hashes);
                     game_baseline = hashes;
                 }
             }
         }
+
+        if let Ok(current) = scan_game_dir(&dir) {
+            let changes = compare_hashes(&game_baseline, &current);
+            if changes.total() > 0 {
+                for f in &changes.modified {
+                    let _ = log(
+                        LogLevel::Alert,
+                        &format!("Game file MODIFIED: {}", f),
+                        &log_path,
+                    );
+                }
+                for f in &changes.added {
+                    let _ = log(
+                        LogLevel::Alert,
+                        &format!("Game file ADDED: {}", f),
+                        &log_path,
+                    );
+                }
+                for f in &changes.removed {
+                    let _ = log(
+                        LogLevel::Alert,
+                        &format!("Game file REMOVED: {}", f),
+                        &log_path,
+                    );
+                }
+                if changes.is_suspicious() {
+                    let _ = log(
+                        LogLevel::Cheat,
+                        "Small targeted file change detected — possible cheat injection",
+                        &log_path,
+                    );
+                }
+            } else {
+                let _ = log(
+                    LogLevel::Info,
+                    "Game integrity OK — no changes since baseline",
+                    &log_path,
+                );
+            }
+        }
+
         game_dir = Some(dir);
     }
 
@@ -119,106 +209,154 @@ V::::::V           V::::::V                                   l:::::l
         Err(e) => println!("Ebpf err: {:?}", e),
     }
 
-    // spawn inotify file watcher for game directory (replaces polling)
     if let Some(ref dir) = game_dir {
         let dir = dir.clone();
         let baseline = game_baseline.clone();
+        let inotify_log_path = log_path.clone();
         tokio::spawn(async move {
+            let _ = log(
+                LogLevel::Inotify,
+                &format!("Starting watcher for {}", dir),
+                &inotify_log_path,
+            );
             if let Err(e) = notify::watch_game_dir(dir, baseline).await {
-                eprintln!("[INOTIFY] Watcher error: {}", e);
+                let _ = log(
+                    LogLevel::Inotify,
+                    &format!("Watcher error: {}", e),
+                    &inotify_log_path,
+                );
             }
         });
     }
 
+    std::thread::spawn(|| {
+        if let Err(e) = get_kernel_logs(|log| parse_kernel_log(&log)) {
+            eprintln!("[KLOG] Failed to read /dev/kmsg: {}", e);
+        }
+    });
+
     if let Ok(reasons) = check_sandbox()
         && !reasons.is_empty()
     {
-        println!(
-            "{:?} that means that we are in a sanbdox environment",
-            reasons
+        let _ = log(
+            LogLevel::Alert,
+            &format!("Sandbox environment detected: {:?}", reasons),
+            &log_path,
         );
     }
 
-    loop {
-        procs.clear();
-        if let Ok(vec) = scan_processes() {
-            for &pid in &vec {
-                if let Ok(proc) = get_process(pid, &whitelist) {
-                    if let Ok(val) = get_map(pid, &mut found_maps, &whitelist)
-                        && !val.is_empty()
-                    {
-                        println!("{:?}", val);
-                    }
+    tokio::select! {
+        _ = async {
+            loop {
+                procs.clear();
+                if let Ok(vec) = scan_processes() {
+                    for &pid in &vec {
+                        if let Ok(proc) = get_process(pid, &whitelist) {
+                            if let Ok(val) = get_map(pid, &mut found_maps, &whitelist)
+                                && !val.is_empty()
+                            {
+                                let _ = log(LogLevel::Alert, &format!("{:?}", val), &log_path);
+                            }
 
-                    if let Ok(val) = get_fd(pid)
-                        && !val.is_empty()
-                    {
-                        println!("Process {}, reading other process memory: {:?}", pid, val);
-                    }
+                            if let Ok(val) = get_fd(pid)
+                                && !val.is_empty()
+                            {
+                                let _ = log(
+                                    LogLevel::Alert,
+                                    &format!("Process {}, reading other process memory: {:?}", pid, val),
+                                    &log_path,
+                                );
+                            }
 
-                    if let Ok(inodes) = get_inode(pid)
-                        && !inodes.is_empty()
-                        && let Ok(connections) = get_connections(&inodes)
-                    {
-                        for conn in &connections {
-                            println!("[NET] pid {} has connection: {}", pid, conn);
+                            if let Ok(inodes) = get_inode(pid)
+                                && !inodes.is_empty()
+                                && let Ok(connections) = get_connections(&inodes)
+                            {
+                                for conn in &connections {
+                                    let _ = log(
+                                        LogLevel::Net,
+                                        &format!("pid {} has connection: {}", pid, conn),
+                                        &log_path,
+                                    );
+                                }
+                            }
+
+                            if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
+                                let _ = log(
+                                    LogLevel::Cheat,
+                                    &format!("pid {} matched: {} [{}] — {}", pid, name, category, desc),
+                                    &log_path,
+                                );
+                            }
+
+                            if found.contains(&pid) && !proc.is_suspicious() {
+                                found.remove(&pid);
+                            }
+
+                            if proc.is_suspicious() && !found.contains(&pid) {
+                                let _ = log(LogLevel::Alert, &format!("{:?}", proc), &log_path);
+                                found.insert(pid);
+                            }
+
+                            if !history.contains(&pid) && !first_run {
+                                let _ = log(
+                                    LogLevel::Info,
+                                    &format!("A new process was born: \n{:?}", proc),
+                                    &log_path,
+                                );
+                            }
+
+                            procs.push(proc);
                         }
                     }
 
-                    if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
-                        println!(
-                            "[CHEAT] pid {} matched: {} [{}] — {}",
-                            pid, name, category, desc
-                        );
+                    let cross_traced = get_cross_traces(&procs);
+                    for (tracer, targets) in &cross_traced {
+                        if targets.len() > 1 {
+                            let _ = log(
+                                LogLevel::Alert,
+                                &format!(
+                                    "Tracer pid {} traces multiple processes: {:?}",
+                                    tracer, targets
+                                ),
+                                &log_path,
+                            );
+                        }
                     }
 
-                    if found.contains(&pid) && !proc.is_suspicious() {
-                        found.remove(&pid);
-                    }
-
-                    if proc.is_suspicious() && !found.contains(&pid) {
-                        println!("{:?}", proc);
-                        found.insert(pid);
-                    }
-
-                    if !history.contains(&pid) && !first_run {
-                        println!("A new process was born: \n{:?}", proc);
-                    }
-
-                    procs.push(proc);
+                    history = vec.into_iter().collect();
                 }
-            }
 
-            let cross_traced = get_cross_traces(&procs);
-            for (tracer, targets) in &cross_traced {
-                if targets.len() > 1 {
-                    println!(
-                        "There is some tracer with pid: {:?} that traces more than 1 process: {:?}",
-                        tracer, targets
-                    );
+                if let Ok(modules) = get_modules() {
+                    let current_modules: HashSet<String> = modules.into_iter().collect();
+
+                    if !first_run {
+                        for new_mod in current_modules.difference(&module_history) {
+                            let _ = log(
+                                LogLevel::Alert,
+                                &format!("New kernel module loaded: {}", new_mod),
+                                &log_path,
+                            );
+                        }
+
+                        for dead_mod in module_history.difference(&current_modules) {
+                            let _ = log(
+                                LogLevel::Info,
+                                &format!("Kernel module unloaded: {}", dead_mod),
+                                &log_path,
+                            );
+                        }
+                    }
+
+                    module_history = current_modules;
                 }
-            }
 
-            history = vec.into_iter().collect();
+                first_run = false;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        } => {}
+        _ = tokio::signal::ctrl_c() => {
+            let _ = log(LogLevel::Info, "Vigil stopped (SIGINT)", &log_path);
         }
-
-        if let Ok(modules) = get_modules() {
-            let current_modules: HashSet<String> = modules.into_iter().collect();
-
-            if !first_run {
-                for new_mod in current_modules.difference(&module_history) {
-                    println!("[ALERT] A new kernel module was loaded: {}", new_mod);
-                }
-
-                for dead_mod in module_history.difference(&current_modules) {
-                    println!("[INFO] A kernel module was unloaded: {}", dead_mod);
-                }
-            }
-
-            module_history = current_modules;
-        }
-
-        first_run = false;
-        std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }

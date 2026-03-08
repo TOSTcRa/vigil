@@ -10,5 +10,14 @@ bytes = "1.11.1"
 inotify = "0.11.1"
 tokio-stream = "0.1"
 sha2 = "0.10.9"
-tokio = {version = "1.49.0", features = ["rt", "macros", "rt-multi-thread", "signal"]}
+tokio = { version = "1.49.0", features = [
+  "rt",
+  "macros",
+  "rt-multi-thread",
+  "signal",
+] }
 vigil-common = { path = "../vigil-common", features = ["user"] }
+toml = "1.0.6"
+serde = { version = "1.0.228", features = ["derive"] }
+chrono = "0.4.44"
+clap = { version = "4.5.60", features = ["derive"] }
