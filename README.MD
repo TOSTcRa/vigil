@@ -116,6 +116,7 @@ vigil/                      Cargo workspace root
 |       +-- config.rs       Whitelist + cheat hash database loading and matching
 |       +-- network.rs      Socket inode extraction + TCP connection matching
 |       +-- ebpf.rs         BPF loading, PerfEventArray, async event reading
+|       +-- notify.rs       Real-time game directory watcher via inotify
 |
 +-- vigil-ebpf/             BPF kernel program (bpfel-unknown-none target)
 |   +-- src/
@@ -209,7 +210,7 @@ Understanding the enemy:
 - [x] Network traffic analysis — per-process TCP connection monitoring via `/proc/net/tcp` + inode matching
 - [x] Game file hash verification (detect modified game files)
 - [x] Sandboxing detection (is the game running in a compromised environment?)
-- [ ] inotify watching for suspicious file changes in game directories
+- [x] Real-time inotify file watcher for game directories (replaces polling, auto-watches new subdirs)
 
 ### Phase 4: Daemon & Service
 - [ ] Run Vigil as a systemd service/daemon

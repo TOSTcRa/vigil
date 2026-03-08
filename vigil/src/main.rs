@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::scanner::check_sandbox;
 use crate::{
     config::{
-        check_hash, compare_hashes, get_cheat_db, get_game_dir, get_whitelist, load_baseline,
+        check_hash, get_cheat_db, get_game_dir, get_whitelist, load_baseline,
         save_baseline, scan_game_dir,
     },
     ebpf::{get_events, read_events, start_ebpf},
@@ -18,6 +18,7 @@ mod config;
 mod ebpf;
 mod kernel_log;
 mod network;
+mod notify;
 mod process;
 mod scanner;
 // vigil anti-cheat — two detection layers running in parallel:
@@ -53,8 +54,6 @@ async fn main() {
     let baseline_path = "/etc/vigil/game_baseline.txt";
     let mut game_baseline: HashMap<String, String> = HashMap::new();
     let mut game_dir: Option<String> = None;
-    let mut integrity_counter: u32 = 0;
-
     if let Ok(dir) = get_game_dir() {
         match load_baseline(baseline_path) {
             Ok(bl) => {
@@ -120,6 +119,17 @@ V::::::V           V::::::V                                   l:::::l
         Err(e) => println!("Ebpf err: {:?}", e),
     }
 
+    // spawn inotify file watcher for game directory (replaces polling)
+    if let Some(ref dir) = game_dir {
+        let dir = dir.clone();
+        let baseline = game_baseline.clone();
+        tokio::spawn(async move {
+            if let Err(e) = notify::watch_game_dir(dir, baseline).await {
+                eprintln!("[INOTIFY] Watcher error: {}", e);
+            }
+        });
+    }
+
     if let Ok(reasons) = check_sandbox()
         && !reasons.is_empty()
     {
@@ -148,11 +158,10 @@ V::::::V           V::::::V                                   l:::::l
 
                     if let Ok(inodes) = get_inode(pid)
                         && !inodes.is_empty()
+                        && let Ok(connections) = get_connections(&inodes)
                     {
-                        if let Ok(connections) = get_connections(&inodes) {
-                            for conn in &connections {
-                                println!("[NET] pid {} has connection: {}", pid, conn);
-                            }
+                        for conn in &connections {
+                            println!("[NET] pid {} has connection: {}", pid, conn);
                         }
                     }
 
@@ -207,41 +216,6 @@ V::::::V           V::::::V                                   l:::::l
             }
 
             module_history = current_modules;
-        }
-
-        if let Some(ref dir) = game_dir {
-            integrity_counter += 1;
-            if integrity_counter >= 12 {
-                integrity_counter = 0;
-                if let Ok(current) = scan_game_dir(dir) {
-                    let changes = compare_hashes(&game_baseline, &current);
-                    if changes.total() > 0 {
-                        for f in &changes.modified {
-                            println!("[INTEGRITY] Modified: {}", f);
-                        }
-                        for f in &changes.added {
-                            println!("[INTEGRITY] Added: {}", f);
-                        }
-                        for f in &changes.removed {
-                            println!("[INTEGRITY] Removed: {}", f);
-                        }
-
-                        if changes.is_suspicious() {
-                            println!(
-                                "[INTEGRITY] SUSPICIOUS — only {} file(s) changed",
-                                changes.total()
-                            );
-                        } else {
-                            println!(
-                                "[INTEGRITY] {} files changed — likely a game update, resaving baseline",
-                                changes.total()
-                            );
-                            let _ = save_baseline(baseline_path, &current);
-                            game_baseline = current;
-                        }
-                    }
-                }
-            }
         }
 
         first_run = false;
