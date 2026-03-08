@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use std::collections::HashMap;
 
+use crate::scanner::check_sandbox;
 use crate::{
     config::{
         check_hash, compare_hashes, get_cheat_db, get_game_dir, get_whitelist, load_baseline,
@@ -10,17 +11,15 @@ use crate::{
     ebpf::{get_events, read_events, start_ebpf},
     network::{get_connections, get_inode},
     process::{Proc, Suspicious},
-    scanner::{
-        get_cross_traces, get_fd, get_map, get_modules, get_process, scan_processes,
-    },
+    scanner::{get_cross_traces, get_fd, get_map, get_modules, get_process, scan_processes},
 };
 
 mod config;
 mod ebpf;
+mod kernel_log;
 mod network;
 mod process;
 mod scanner;
-mod kernel_log;
 // vigil anti-cheat — two detection layers running in parallel:
 // 1. eBPF tracepoint — kernel-level hook catches every process_vm_readv call in real time
 //    loaded at startup via start_ebpf(), events read async via tokio::spawn per CPU
@@ -119,6 +118,15 @@ V::::::V           V::::::V                                   l:::::l
             _active_ebpf = Some(ebpf);
         }
         Err(e) => println!("Ebpf err: {:?}", e),
+    }
+
+    if let Ok(reasons) = check_sandbox()
+        && !reasons.is_empty()
+    {
+        println!(
+            "{:?} that means that we are in a sanbdox environment",
+            reasons
+        );
     }
 
     loop {

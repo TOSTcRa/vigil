@@ -1,8 +1,8 @@
+use crate::kernel_log::Log;
 use crate::process::{Proc, ProcessStatus};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use crate::kernel_log::Log;
 
 // reads /proc directory and collects all numeric folder names (those are PIDs)
 // non-numeric entries (like /proc/cpuinfo, /proc/net) are skipped
@@ -262,7 +262,7 @@ pub fn get_cross_traces(procs: &[Proc]) -> HashMap<u64, Vec<u64>> {
 // uses callback pattern so caller decides what to do with each log entry
 // note: /dev/kmsg blocks on read when no new messages — this will run forever as a listener
 // needs root (or CAP_SYSLOG) to open /dev/kmsg
-pub fn get_kernel_logs(callback: impl Fn(Log)) -> std::io::Result<()>{
+pub fn get_kernel_logs(callback: impl Fn(Log)) -> std::io::Result<()> {
     let f = File::open("/dev/kmsg")?;
     let reader = BufReader::new(f);
 
@@ -271,8 +271,14 @@ pub fn get_kernel_logs(callback: impl Fn(Log)) -> std::io::Result<()>{
         let semi_split = line.split(';').collect::<Vec<&str>>();
         let comma_split = semi_split[0].split(',').collect::<Vec<&str>>();
 
-        if comma_split[0].parse::<u8>().unwrap() == 3 || comma_split[0].parse::<u32>().unwrap() == 4 {
-            let log = Log::new(comma_split[0].parse().unwrap(), comma_split[1].parse().unwrap(), comma_split[2].parse().unwrap(), semi_split[1].into());
+        if comma_split[0].parse::<u8>().unwrap() == 3 || comma_split[0].parse::<u32>().unwrap() == 4
+        {
+            let log = Log::new(
+                comma_split[0].parse().unwrap(),
+                comma_split[1].parse().unwrap(),
+                comma_split[2].parse().unwrap(),
+                semi_split[1].into(),
+            );
             callback(log);
         }
     }
@@ -295,10 +301,12 @@ pub fn parse_kernel_log(log: &Log) {
     let msg = log.get_message();
     let ts = log.get_timestamp();
 
-    if msg.contains("loading out-of-tree module")
-        || msg.contains("module verification failed")
-    {
-        println!("[KLOG ts={}] Unsigned/out-of-tree module loaded: {}", ts, msg.trim());
+    if msg.contains("loading out-of-tree module") || msg.contains("module verification failed") {
+        println!(
+            "[KLOG ts={}] Unsigned/out-of-tree module loaded: {}",
+            ts,
+            msg.trim()
+        );
     }
 
     if msg.contains("Tainted:") || msg.contains("tainting kernel") {
@@ -306,17 +314,23 @@ pub fn parse_kernel_log(log: &Log) {
     }
 
     if msg.contains("segfault at") || msg.contains("general protection fault") {
-        println!("[KLOG ts={}] Memory fault (possible injection failure): {}", ts, msg.trim());
+        println!(
+            "[KLOG ts={}] Memory fault (possible injection failure): {}",
+            ts,
+            msg.trim()
+        );
     }
 
-    if msg.contains("BUG: unable to handle page fault")
-        || msg.contains("page_fault")
-    {
+    if msg.contains("BUG: unable to handle page fault") || msg.contains("page_fault") {
         println!("[KLOG ts={}] Kernel page fault: {}", ts, msg.trim());
     }
 
     if msg.contains("/dev/mem") || msg.contains("/dev/kmem") {
-        println!("[KLOG ts={}] Physical memory device access: {}", ts, msg.trim());
+        println!(
+            "[KLOG ts={}] Physical memory device access: {}",
+            ts,
+            msg.trim()
+        );
     }
 
     if msg.contains("DMAR:") || msg.contains("IOMMU") || msg.contains("DMA") {
@@ -334,4 +348,61 @@ pub fn parse_kernel_log(log: &Log) {
     if (msg.contains("apparmor=") || msg.contains("avc:")) && msg.contains("ptrace") {
         println!("[KLOG ts={}] LSM denied ptrace: {}", ts, msg.trim());
     }
+}
+
+pub fn check_sandbox() -> std::io::Result<Vec<String>> {
+    let mut res: Vec<String> = vec![];
+    let vm_modules = ["vboxguest", "vmw_balloon", "virtio", "hyperv"];
+    let vm_names = [
+        "VirtualBox",
+        "VMware",
+        "QEMU",
+        "KVM",
+        "Bochs",
+        "Hyper-V",
+        "Parallels",
+        "Xen",
+        "BHYVE",
+        "innotek",
+    ];
+
+    let product_name = std::fs::read_to_string("/sys/class/dmi/id/product_name")?
+        .trim()
+        .to_lowercase();
+    let cpuifo = std::fs::read_to_string("/proc/cpuinfo")?;
+
+    for line in cpuifo.lines() {
+        if let Some((key, value)) = line.split_once(":")
+            && (key.trim().starts_with("flags") && value.contains("hypervisor"))
+        {
+            res.push(String::from("hypervisor"));
+        }
+    }
+
+    for &name in &vm_names {
+        if product_name.contains(&name.to_lowercase()) {
+            res.push(name.to_string());
+        }
+    }
+    if let Ok(modules) = get_modules() {
+        for m in &modules {
+            if vm_modules.iter().any(|vm| m.contains(vm)) {
+                res.push(m.to_string());
+            }
+        }
+    }
+
+    if std::fs::read_to_string("/.dockerenv").is_ok() {
+        res.push(String::from("/.dockerenv"));
+    }
+
+    if let Ok(cgroup) = std::fs::read_to_string("/proc/1/cgroup") {
+        for line in cgroup.lines() {
+            if line.starts_with("docker") || line.starts_with("lxc") {
+                res.push(line.to_string());
+            }
+        }
+    }
+
+    Ok(res)
 }

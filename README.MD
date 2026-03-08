@@ -208,7 +208,7 @@ Understanding the enemy:
 - [x] dmesg log monitoring for suspicious kernel activity
 - [x] Network traffic analysis — per-process TCP connection monitoring via `/proc/net/tcp` + inode matching
 - [x] Game file hash verification (detect modified game files)
-- [ ] Sandboxing detection (is the game running in a compromised environment?)
+- [x] Sandboxing detection (is the game running in a compromised environment?)
 - [ ] inotify watching for suspicious file changes in game directories
 
 ### Phase 4: Daemon & Service
