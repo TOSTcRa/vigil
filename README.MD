@@ -217,7 +217,7 @@ Understanding the enemy:
 - [x] Logging system (unified `log()` with chrono timestamps, LogLevel enum, file + console output)
 - [x] CLI interface (`vigil scan` one-time scan, `vigil check` game integrity, `vigil status` diagnostics, clap)
 - [x] Signal handling (graceful shutdown via `tokio::select!` + `ctrl_c()`, logs exit event)
-- [ ] OpenRC init script (primary — tostcr)
+- [x] OpenRC init script (primary — tostcr)
 - [ ] systemd service file (nnnm's task)
 - [ ] *(optional)* dinit service file
 - [ ] *(optional)* runit run script
