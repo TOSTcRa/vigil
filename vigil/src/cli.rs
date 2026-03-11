@@ -266,6 +266,11 @@ path = "/home/user/.steam/steam/steamapps/common/GameName"
 
 [logging]
 path = "/var/log/vigil.log"
+
+# Uncomment to enable server reporting
+# [server]
+# url = "http://localhost:3000"
+# player_id = "00000000-0000-0000-0000-000000000000"
 "#;
         match std::fs::write(&config_path, config_content) {
             Ok(_) => println!("[INIT] {} — created (edit game path!)", config_path),

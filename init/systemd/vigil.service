@@ -1,0 +1,14 @@
+[Unit]
+Description=Vigil Anti-Cheat
+After=local-fs.target network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vigil
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

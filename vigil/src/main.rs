@@ -3,9 +3,14 @@ use std::collections::HashSet;
 use std::collections::HashMap;
 
 use clap::Parser;
+use uuid::Uuid;
 
 use crate::cli::{Cli, Commands, cmd_check, cmd_init, cmd_scan, cmd_status};
 use crate::kernel_log::{get_kernel_logs, parse_kernel_log};
+use crate::report::{
+    CheatMatch, CrossTrace, FileIntegrity, ModuleChange, NetworkConnection, SuspiciousProcess,
+    build_report,
+};
 use crate::scanner::check_sandbox;
 use crate::{
     config::{
@@ -19,28 +24,15 @@ use crate::{
 };
 
 mod cli;
+mod client;
 mod config;
 mod ebpf;
 mod kernel_log;
 mod network;
 mod notify;
 mod process;
+mod report;
 mod scanner;
-// vigil anti-cheat — two detection layers running in parallel:
-// 1. eBPF tracepoint — kernel-level hook catches every process_vm_readv call in real time
-//    loaded at startup via start_ebpf(), events read async via tokio::spawn per CPU
-// 2. /proc scanner — polls every 5 sec, 7 detection methods:
-//    TracerPid, maps (w+x / suspicious dirs), LD_PRELOAD, cmdline debuggers, exe path, fd, name
-// found = already alerted pids (dedup), found_maps = already checked .so paths (dedup)
-// whitelist = trusted path patterns from /etc/vigil/whitelist.txt
-// history = previous scan pids for birth tracking (first_run skips initial alerts)
-// _active_ebpf = keeps Ebpf alive so BPF stays loaded in kernel (dropped = unloaded)
-//
-// how to test:
-// 1. cargo +nightly build -p vigil-ebpf --target bpfel-unknown-none -Z build-std=core --release
-// 2. cargo build -p vigil && sudo ./target/debug/vigil
-// 3. from another terminal: python3 -c "import ctypes; libc = ctypes.CDLL('libc.so.6'); libc.process_vm_readv(1, 0, 0, 0, 0, 0)"
-// 4. vigil should print SyscallEvent { pid_caller: ..., pid_target: 1 }
 
 #[tokio::main]
 async fn main() {
@@ -55,7 +47,6 @@ async fn main() {
     }
 }
 
-// vigil (no args) — full daemon: eBPF + /proc loop + inotify + kernel log monitor
 async fn run_daemon() {
     let mut history: HashSet<u64> = HashSet::new();
     let mut module_history: HashSet<String> = HashSet::new();
@@ -68,6 +59,7 @@ async fn run_daemon() {
     let mut first_run = true;
 
     let mut _active_ebpf = None;
+    let mut ebpf_active = false;
 
     let config = match get_config() {
         Ok(c) => {
@@ -86,6 +78,25 @@ async fn run_daemon() {
         .unwrap_or_else(|| String::from("/var/log/vigil.log"));
 
     let game_path_from_config = config.as_ref().map(|c| c.game.path.clone());
+
+    // Server reporting config
+    let server_url = config
+        .as_ref()
+        .and_then(|c| c.server.as_ref())
+        .map(|s| s.url.clone());
+    let player_id = config
+        .as_ref()
+        .and_then(|c| c.server.as_ref())
+        .and_then(|s| Uuid::parse_str(&s.player_id).ok())
+        .unwrap_or_else(Uuid::nil);
+
+    if server_url.is_some() {
+        let _ = log(
+            LogLevel::Info,
+            &format!("Server reporting enabled, player_id: {}", player_id),
+            &log_path,
+        );
+    }
 
     let baseline_path = "/etc/vigil/game_baseline.txt";
     let mut game_baseline: HashMap<String, String> = HashMap::new();
@@ -199,6 +210,7 @@ V::::::V           V::::::V                                   l:::::l
                         println!("Error reading events: {:?}", e);
                     } else {
                         println!("eBPF loaded and listening in the background!");
+                        ebpf_active = true;
                     }
                 }
                 Err(err) => println!("Error getting events: {:?}", err),
@@ -235,12 +247,11 @@ V::::::V           V::::::V                                   l:::::l
         }
     });
 
-    if let Ok(reasons) = check_sandbox()
-        && !reasons.is_empty()
-    {
+    let sandbox_reasons = check_sandbox().unwrap_or_default();
+    if !sandbox_reasons.is_empty() {
         let _ = log(
             LogLevel::Alert,
-            &format!("Sandbox environment detected: {:?}", reasons),
+            &format!("Sandbox environment detected: {:?}", sandbox_reasons),
             &log_path,
         );
     }
@@ -249,6 +260,13 @@ V::::::V           V::::::V                                   l:::::l
         _ = async {
             loop {
                 procs.clear();
+
+                // Report data collectors
+                let mut report_suspicious: Vec<SuspiciousProcess> = vec![];
+                let mut report_cheats: Vec<CheatMatch> = vec![];
+                let mut report_connections: Vec<NetworkConnection> = vec![];
+                let mut report_modules: Vec<ModuleChange> = vec![];
+
                 if let Ok(vec) = scan_processes() {
                     for &pid in &vec {
                         if let Ok(proc) = get_process(pid, &whitelist) {
@@ -256,6 +274,13 @@ V::::::V           V::::::V                                   l:::::l
                                 && !val.is_empty()
                             {
                                 let _ = log(LogLevel::Alert, &format!("{:?}", val), &log_path);
+                                for (path, reason) in &val {
+                                    report_suspicious.push(SuspiciousProcess {
+                                        pid,
+                                        name: path.clone(),
+                                        reason: reason.clone(),
+                                    });
+                                }
                             }
 
                             if let Ok(val) = get_fd(pid)
@@ -278,6 +303,10 @@ V::::::V           V::::::V                                   l:::::l
                                         &format!("pid {} has connection: {}", pid, conn),
                                         &log_path,
                                     );
+                                    report_connections.push(NetworkConnection {
+                                        pid,
+                                        address: conn.clone(),
+                                    });
                                 }
                             }
 
@@ -287,6 +316,12 @@ V::::::V           V::::::V                                   l:::::l
                                     &format!("pid {} matched: {} [{}] — {}", pid, name, category, desc),
                                     &log_path,
                                 );
+                                report_cheats.push(CheatMatch {
+                                    pid,
+                                    name: name.clone(),
+                                    category: category.clone(),
+                                    description: desc.clone(),
+                                });
                             }
 
                             if found.contains(&pid) && !proc.is_suspicious() {
@@ -311,8 +346,10 @@ V::::::V           V::::::V                                   l:::::l
                     }
 
                     let cross_traced = get_cross_traces(&procs);
-                    for (tracer, targets) in &cross_traced {
-                        if targets.len() > 1 {
+                    let report_traces: Vec<CrossTrace> = cross_traced
+                        .iter()
+                        .filter(|(_, targets)| targets.len() > 1)
+                        .map(|(tracer, targets)| {
                             let _ = log(
                                 LogLevel::Alert,
                                 &format!(
@@ -321,34 +358,100 @@ V::::::V           V::::::V                                   l:::::l
                                 ),
                                 &log_path,
                             );
-                        }
-                    }
+                            CrossTrace {
+                                tracer_pid: *tracer,
+                                targets: targets.clone(),
+                            }
+                        })
+                        .collect();
 
                     history = vec.into_iter().collect();
-                }
 
-                if let Ok(modules) = get_modules() {
-                    let current_modules: HashSet<String> = modules.into_iter().collect();
+                    // Module tracking
+                    if let Ok(modules) = get_modules() {
+                        let current_modules: HashSet<String> = modules.into_iter().collect();
 
-                    if !first_run {
-                        for new_mod in current_modules.difference(&module_history) {
-                            let _ = log(
-                                LogLevel::Alert,
-                                &format!("New kernel module loaded: {}", new_mod),
-                                &log_path,
-                            );
+                        if !first_run {
+                            for new_mod in current_modules.difference(&module_history) {
+                                let _ = log(
+                                    LogLevel::Alert,
+                                    &format!("New kernel module loaded: {}", new_mod),
+                                    &log_path,
+                                );
+                                report_modules.push(ModuleChange {
+                                    name: new_mod.clone(),
+                                    action: "loaded".to_string(),
+                                });
+                            }
+
+                            for dead_mod in module_history.difference(&current_modules) {
+                                let _ = log(
+                                    LogLevel::Info,
+                                    &format!("Kernel module unloaded: {}", dead_mod),
+                                    &log_path,
+                                );
+                                report_modules.push(ModuleChange {
+                                    name: dead_mod.clone(),
+                                    action: "unloaded".to_string(),
+                                });
+                            }
                         }
 
-                        for dead_mod in module_history.difference(&current_modules) {
+                        module_history = current_modules;
+                    }
+
+                    // Build and send report to server
+                    if let Some(ref url) = server_url {
+                        let integrity = if let Some(ref dir) = game_dir {
+                            if let Ok(current) = scan_game_dir(dir) {
+                                let changes = compare_hashes(&game_baseline, &current);
+                                FileIntegrity {
+                                    status: if changes.total() == 0 {
+                                        "ok".to_string()
+                                    } else {
+                                        "modified".to_string()
+                                    },
+                                    modified: changes.modified,
+                                    added: changes.added,
+                                    removed: changes.removed,
+                                }
+                            } else {
+                                FileIntegrity {
+                                    status: "unknown".to_string(),
+                                    modified: vec![],
+                                    added: vec![],
+                                    removed: vec![],
+                                }
+                            }
+                        } else {
+                            FileIntegrity {
+                                status: "unconfigured".to_string(),
+                                modified: vec![],
+                                added: vec![],
+                                removed: vec![],
+                            }
+                        };
+
+                        let scan_report = build_report(
+                            player_id,
+                            ebpf_active,
+                            &sandbox_reasons,
+                            report_suspicious,
+                            report_cheats,
+                            report_traces,
+                            report_connections,
+                            report_modules,
+                            integrity,
+                        );
+
+                        if let Err(e) = client::send_report(url, &scan_report).await {
                             let _ = log(
                                 LogLevel::Info,
-                                &format!("Kernel module unloaded: {}", dead_mod),
+                                &format!("Failed to send report: {}", e),
                                 &log_path,
                             );
                         }
                     }
-
-                    module_history = current_modules;
                 }
 
                 first_run = false;

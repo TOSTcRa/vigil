@@ -1,0 +1,14 @@
+[package]
+name = "vigil-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+tower-http = { version = "0.6", features = ["cors"] }

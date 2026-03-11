@@ -36,6 +36,7 @@ impl std::fmt::Display for LogLevel {
 pub struct Config {
     pub game: GameConfig,
     pub logging: LogConfig,
+    pub server: Option<ServerConfig>,
 }
 
 #[derive(Deserialize)]
@@ -46,6 +47,12 @@ pub struct GameConfig {
 #[derive(Deserialize)]
 pub struct LogConfig {
     pub path: String,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ServerConfig {
+    pub url: String,
+    pub player_id: String,
 }
 
 pub fn get_config() -> Result<Config, Box<dyn std::error::Error>> {

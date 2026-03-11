@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+
+command=/usr/bin/vigil
+command_background=true
+pidfile="/run/vigil.pid"
+output_log="/var/log/vigil_stdout.log"
+error_log="/var/log/vigil_stderr.log"
+
+depend() {
+    need localmount
+    after net
+}

@@ -1,0 +1,5 @@
+type = process
+command = /usr/bin/vigil
+smooth-recovery = true
+logfile = /var/log/vigil_stdout.log
+depends-on = boot.target

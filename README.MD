@@ -19,7 +19,7 @@ Written in Rust. Powered by eBPF.
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust)](#)
 [![eBPF](https://img.shields.io/badge/kernel-eBPF-red)](#)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](#)
-[![Status](https://img.shields.io/badge/status-Phase%204-blue)](#)
+[![Status](https://img.shields.io/badge/status-Phase%206-blue)](#)
 
 ---
 
@@ -108,36 +108,64 @@ Plus: process birth/death tracking, parent PID analysis, and a configurable whit
 ```
 vigil/                      Cargo workspace root
 |
-+-- vigil/                  Userspace binary
++-- vigil/                  Userspace binary (anti-cheat client)
 |   +-- src/
-|       +-- main.rs         Entry point, async main, eBPF init + monitoring loop
+|       +-- main.rs         Entry point, CLI dispatch, daemon loop with report collection
+|       +-- cli.rs          CLI subcommands: scan, check, status, init (clap)
 |       +-- process.rs      Proc struct, ProcessStatus enum, Suspicious trait
-|       +-- scanner.rs      /proc parsing: maps, environ, cmdline, exe, fd, modules
-|       +-- config.rs       Whitelist + cheat hash database loading and matching
+|       +-- scanner.rs      /proc parsing: maps, environ, cmdline, exe, fd, modules, sandbox
+|       +-- config.rs       TOML config, logging, whitelist, cheat DB, file hashing
 |       +-- network.rs      Socket inode extraction + TCP connection matching
 |       +-- ebpf.rs         BPF loading, PerfEventArray, async event reading
 |       +-- notify.rs       Real-time game directory watcher via inotify
+|       +-- report.rs       JSON scan report generation (ScanReport struct)
+|       +-- client.rs       HTTP client — sends reports to vigil-server
+|       +-- kernel_log.rs   /dev/kmsg reader, kernel log parsing
+|
++-- vigil-server/           REST API backend (Axum)
+|   +-- src/
+|       +-- main.rs         Player registration, report receiving, match integrity
 |
 +-- vigil-ebpf/             BPF kernel program (bpfel-unknown-none target)
 |   +-- src/
 |       +-- main.rs         Tracepoints + kprobes: vm_readv, vm_writev, ptrace, memfd_create, mem_write, do_init_module
 |
 +-- vigil-common/           Shared types (kernel <-> userspace)
-    +-- src/
-        +-- lib.rs          SyscallEvent (#[repr(C)], no_std)
+|   +-- src/
+|       +-- lib.rs          SyscallEvent (#[repr(C)], no_std)
+|
++-- init/                   Service files for init systems
+|   +-- openrc/vigil        OpenRC init script
+|   +-- systemd/vigil.service  systemd unit file
+|   +-- dinit/vigil         dinit service file
+|   +-- runit/run           runit run script
+|   +-- s6/vigil/           s6 service directory
+|
++-- Makefile                Build + install (make && sudo make install)
 ```
 
 ## Building
 
 ```bash
-# Build the BPF kernel program (requires nightly + bpf-linker)
-cargo +nightly build -p vigil-ebpf --target bpfel-unknown-none -Z build-std=core --release
+# Build everything (eBPF + client + server)
+make build
 
-# Build userspace
-cargo build -p vigil
+# Or build individually:
+make build-ebpf    # BPF kernel program (requires nightly + bpf-linker)
+make build-vigil   # Userspace client
+cargo build -p vigil-server  # Backend server
 
-# Run (requires root for eBPF + /proc/PID/fd access)
-sudo ./target/debug/vigil
+# Install system-wide
+sudo make install
+
+# Initialize config files
+sudo vigil init
+
+# Run client (requires root for eBPF + /proc/PID/fd access)
+sudo vigil
+
+# Run server
+./target/release/vigil-server  # Listens on 0.0.0.0:3000
 ```
 
 **Requirements:** Linux, root privileges, Rust nightly (for BPF compilation).
@@ -162,8 +190,28 @@ sudo strace -p $(pidof sleep) &
 | Platform | Linux (native) |
 | Kernel layer | eBPF via [aya](https://github.com/aya-rs/aya) + aya-ebpf |
 | Async runtime | tokio |
-| Backend (planned) | Rust with Actix or Axum |
+| Backend | Rust with Axum (vigil-server) |
 | Frontend (planned) | egui |
+
+## Server API
+
+`vigil-server` exposes a REST API on `0.0.0.0:3000`:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/health` | Server health check |
+| POST | `/api/player/register` | Register a new player (`{"name": "..."}`) |
+| GET | `/api/player/{id}` | Get player info |
+| GET | `/api/player/{id}/status` | Verify player (clean, verified, config hash match) |
+| GET | `/api/players` | List all players |
+| POST | `/api/report` | Receive scan report from vigil client |
+| POST | `/api/match` | Create a match (`{"player_ids": [...]}`) |
+| POST | `/api/match/end` | End a match (`{"match_id": "..."}`) |
+| GET | `/api/match/{id}/integrity` | Match integrity report (per-player violations) |
+| GET | `/api/matches` | List all matches |
+| POST | `/api/admin/config` | Set expected config (body = raw config content) |
+
+All data is in-memory — resets on server restart. Authentication and persistent storage are planned for Phase 6.
 
 ## How Linux Cheats Work
 
@@ -179,7 +227,7 @@ Understanding the enemy:
 
 ## Roadmap
 
-### Phase 1: Process Monitoring
+### Phase 1: Process Monitoring *(complete)*
 - [x] Scan `/proc` for all running PIDs
 - [x] Parse `/proc/{PID}/status` — name, state, TracerPid
 - [x] Basic suspicion detection (name, status, TracerPid)
@@ -205,30 +253,31 @@ Understanding the enemy:
 - [x] Detect known cheat signatures (hash database + name matching)
 - [x] Detect ptrace-based memory reading by scanning all processes for TracerPid pointing to same target
 
-### Phase 3: System-Level Detection
+### Phase 3: System-Level Detection *(complete)*
 - [x] dmesg log monitoring for suspicious kernel activity
 - [x] Network traffic analysis — per-process TCP connection monitoring via `/proc/net/tcp` + inode matching
 - [x] Game file hash verification (detect modified game files)
 - [x] Sandboxing detection (is the game running in a compromised environment?)
 - [x] Real-time inotify file watcher for game directories (replaces polling, auto-watches new subdirs)
 
-### Phase 4: Daemon & Service
+### Phase 4: Daemon & Service *(complete)*
 - [x] Configuration file (`/etc/vigil/config.toml` — TOML with serde, game path + log path)
 - [x] Logging system (unified `log()` with chrono timestamps, LogLevel enum, file + console output)
 - [x] CLI interface (`vigil scan` one-time scan, `vigil check` game integrity, `vigil status` diagnostics, clap)
 - [x] Signal handling (graceful shutdown via `tokio::select!` + `ctrl_c()`, logs exit event)
-- [x] OpenRC init script (primary — tostcr)
-- [ ] systemd service file (nnnm's task)
-- [ ] *(optional)* dinit service file
-- [ ] *(optional)* runit run script
-- [ ] *(optional)* s6 service directory
+- [x] OpenRC init script
+- [x] systemd service file
+- [x] *(optional)* dinit service file
+- [x] *(optional)* runit run script
+- [x] *(optional)* s6 service directory
+- [x] Makefile (`make build`, `make install`, `make clean`)
 
-### Phase 5: Reporting & Backend
-- [ ] Local report generation (JSON/structured output)
-- [ ] Server communication — send scan results to backend
-- [ ] REST API backend (Rust with Actix/Axum)
-- [ ] Player verification system (is this player running Vigil?)
-- [ ] Match integrity reports
+### Phase 5: Reporting & Backend *(complete)*
+- [x] Local report generation (JSON `ScanReport` struct with serde, built every scan cycle)
+- [x] Server communication — `reqwest` HTTP client sends reports to backend each cycle
+- [x] REST API backend (`vigil-server` — Axum with in-memory state)
+- [x] Player verification system (`/api/player/{id}/status` — checks last report, config hash, clean status)
+- [x] Match integrity reports (`/api/match/{id}/integrity` — aggregates player reports per match)
 
 ### Phase 6: Frontend & Platform
 - [ ] Web dashboard — view scan reports, player status
