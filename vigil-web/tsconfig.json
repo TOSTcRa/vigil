@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "strict": true,
+    "outDir": "./public/js",
+    "rootDir": "./src",
+    "moduleResolution": "bundler",
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"]
+}

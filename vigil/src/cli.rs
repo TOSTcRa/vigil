@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use clap::{Parser, Subcommand};
-
 use crate::config::{
     check_hash, compare_hashes, get_cheat_db, get_config, get_game_dir, get_whitelist,
     load_baseline, save_baseline, scan_game_dir,
@@ -12,14 +10,6 @@ use crate::scanner::{
     check_sandbox, get_cross_traces, get_fd, get_map, get_modules, get_process, scan_processes,
 };
 
-#[derive(Parser)]
-#[command(name = "vigil", about = "Linux anti-cheat system")]
-pub struct Cli {
-    #[command(subcommand)]
-    pub command: Option<Commands>,
-}
-
-#[derive(Clone, Subcommand)]
 pub enum Commands {
     Scan,
     Check,
@@ -27,7 +17,36 @@ pub enum Commands {
     Init,
 }
 
-// vigil scan — one-time /proc scan without loop, eBPF, or inotify
+pub fn parse_args() -> Option<Commands> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        return None; // no subcommand = run daemon
+    }
+    match args[1].as_str() {
+        "scan" => Some(Commands::Scan),
+        "check" => Some(Commands::Check),
+        "status" => Some(Commands::Status),
+        "init" => Some(Commands::Init),
+        "--help" | "-h" => {
+            println!("vigil - linux anti-cheat system\n");
+            println!("usage: vigil [command]\n");
+            println!("commands:");
+            println!("  scan    one-time /proc scan");
+            println!("  check   compare game files against baseline");
+            println!("  status  show configuration and system readiness");
+            println!("  init    create /etc/vigil/ with default configs");
+            println!("\nno command = run as daemon");
+            std::process::exit(0);
+        }
+        other => {
+            eprintln!("unknown command: {}", other);
+            eprintln!("run 'vigil --help' for usage");
+            std::process::exit(1);
+        }
+    }
+}
+
+// vigil scan - one-time /proc scan without loop, eBPF, or inotify
 pub fn cmd_scan() {
     let whitelist = get_whitelist().unwrap_or_default();
     let cheat_db = get_cheat_db().unwrap_or_default();
@@ -77,7 +96,7 @@ pub fn cmd_scan() {
 
             if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
                 println!(
-                    "[CHEAT] pid {} matched: {} [{}] — {}",
+                    "[CHEAT] pid {} matched: {} [{}] - {}",
                     pid, name, category, desc
                 );
             }
@@ -109,7 +128,7 @@ pub fn cmd_scan() {
     println!("[SCAN] Done. Scanned {} processes.", pids.len());
 }
 
-// vigil check — compare current game files against baseline
+// vigil check - compare current game files against baseline
 pub fn cmd_check() {
     let config = get_config().ok();
     let game_path = config
@@ -159,7 +178,7 @@ pub fn cmd_check() {
 
     let changes = compare_hashes(&baseline, &current);
     if changes.total() == 0 {
-        println!("[CHECK] Game integrity OK — no changes since baseline.");
+        println!("[CHECK] Game integrity OK - no changes since baseline.");
         return;
     }
 
@@ -173,7 +192,7 @@ pub fn cmd_check() {
         println!("[CHECK] REMOVED: {}", f);
     }
     if changes.is_suspicious() {
-        println!("[CHECK] Small targeted change — possible cheat injection.");
+        println!("[CHECK] Small targeted change - possible cheat injection.");
     }
     println!(
         "[CHECK] Total changes: {} modified, {} added, {} removed",
@@ -183,7 +202,7 @@ pub fn cmd_check() {
     );
 }
 
-// vigil status — show current configuration and system readiness
+// vigil status - show current configuration and system readiness
 pub fn cmd_status() {
     println!("=== Vigil Status ===\n");
 
@@ -191,11 +210,11 @@ pub fn cmd_status() {
 
     match &config {
         Some(c) => {
-            println!("[CONFIG] /etc/vigil/config.toml — OK");
+            println!("[CONFIG] /etc/vigil/config.toml - OK");
             println!("  game path:  {}", c.game.path);
             println!("  log path:   {}", c.logging.path);
         }
-        None => println!("[CONFIG] /etc/vigil/config.toml — not found"),
+        None => println!("[CONFIG] /etc/vigil/config.toml - not found"),
     }
 
     match get_whitelist() {
@@ -246,7 +265,7 @@ pub fn cmd_status() {
     println!("\n=== Done ===");
 }
 
-// vigil init — create /etc/vigil/ directory and config files with defaults
+// vigil init - create /etc/vigil/ directory and config files with defaults
 pub fn cmd_init() {
     let vigil_dir = "/etc/vigil";
 
@@ -257,7 +276,7 @@ pub fn cmd_init() {
         );
         return;
     }
-    println!("[INIT] {} — OK", vigil_dir);
+    println!("[INIT] {} - OK", vigil_dir);
 
     let config_path = format!("{}/config.toml", vigil_dir);
     if !std::path::Path::new(&config_path).exists() {
@@ -273,11 +292,11 @@ path = "/var/log/vigil.log"
 # player_id = "00000000-0000-0000-0000-000000000000"
 "#;
         match std::fs::write(&config_path, config_content) {
-            Ok(_) => println!("[INIT] {} — created (edit game path!)", config_path),
-            Err(e) => eprintln!("[INIT] {} — failed: {}", config_path, e),
+            Ok(_) => println!("[INIT] {} - created (edit game path!)", config_path),
+            Err(e) => eprintln!("[INIT] {} - failed: {}", config_path, e),
         }
     } else {
-        println!("[INIT] {} — already exists", config_path);
+        println!("[INIT] {} - already exists", config_path);
     }
 
     let whitelist_path = format!("{}/whitelist.txt", vigil_dir);
@@ -293,11 +312,11 @@ libmangoapp.so
 libmangohud.so
 ";
         match std::fs::write(&whitelist_path, whitelist_content) {
-            Ok(_) => println!("[INIT] {} — created", whitelist_path),
-            Err(e) => eprintln!("[INIT] {} — failed: {}", whitelist_path, e),
+            Ok(_) => println!("[INIT] {} - created", whitelist_path),
+            Err(e) => eprintln!("[INIT] {} - failed: {}", whitelist_path, e),
         }
     } else {
-        println!("[INIT] {} — already exists", whitelist_path);
+        println!("[INIT] {} - already exists", whitelist_path);
     }
 
     let cheat_path = format!("{}/cheat_hashes.txt", vigil_dir);
@@ -308,21 +327,21 @@ name_only:csgo_cheat:cheat:CS cheat process
 name_only:memwrite:injection:Memory writer tool
 ";
         match std::fs::write(&cheat_path, cheat_content) {
-            Ok(_) => println!("[INIT] {} — created", cheat_path),
-            Err(e) => eprintln!("[INIT] {} — failed: {}", cheat_path, e),
+            Ok(_) => println!("[INIT] {} - created", cheat_path),
+            Err(e) => eprintln!("[INIT] {} - failed: {}", cheat_path, e),
         }
     } else {
-        println!("[INIT] {} — already exists", cheat_path);
+        println!("[INIT] {} - already exists", cheat_path);
     }
 
     let log_path = "/var/log/vigil.log";
     if !std::path::Path::new(log_path).exists() {
         match std::fs::write(log_path, "") {
-            Ok(_) => println!("[INIT] {} — created", log_path),
-            Err(e) => eprintln!("[INIT] {} — failed: {}", log_path, e),
+            Ok(_) => println!("[INIT] {} - created", log_path),
+            Err(e) => eprintln!("[INIT] {} - failed: {}", log_path, e),
         }
     } else {
-        println!("[INIT] {} — already exists", log_path);
+        println!("[INIT] {} - already exists", log_path);
     }
 
     println!("\n[INIT] Done. Edit {} to set your game path.", config_path);

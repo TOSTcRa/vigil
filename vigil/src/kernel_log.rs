@@ -36,11 +36,11 @@ impl Log {
     }
 }
 
-// reads /dev/kmsg — the kernel log ring buffer (like dmesg but as a stream)
+// reads /dev/kmsg - the kernel log ring buffer (like dmesg but as a stream)
 // format per line: "priority,sequence,timestamp;message"
 // filters for priority 3 (KERN_ERR) and 4 (KERN_WARNING)
 // uses callback pattern so caller decides what to do with each log entry
-// blocks on read when no new messages — runs forever as a listener
+// blocks on read when no new messages - runs forever as a listener
 // needs root (or CAP_SYSLOG) to open /dev/kmsg
 pub fn get_kernel_logs(callback: impl Fn(Log)) -> std::io::Result<()> {
     let f = File::open("/dev/kmsg")?;
@@ -120,5 +120,62 @@ pub fn parse_kernel_log(log: &Log) {
 
     if (msg.contains("apparmor=") || msg.contains("avc:")) && msg.contains("ptrace") {
         println!("[KLOG ts={}] LSM denied ptrace: {}", ts, msg.trim());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_new_and_getters() {
+        let log = Log::new(3, 100, 12345, "test message".to_string());
+        assert_eq!(*log.get_priority(), 3);
+        assert_eq!(*log.get_number(), 100);
+        assert_eq!(*log.get_timestamp(), 12345);
+        assert_eq!(log.get_message(), "test message");
+    }
+
+    #[test]
+    fn parse_out_of_tree_module() {
+        let log = Log::new(3, 1, 1000, " loading out-of-tree module taints kernel".to_string());
+        // just verify it doesn't panic - output goes to stdout
+        parse_kernel_log(&log);
+    }
+
+    #[test]
+    fn parse_taint_log() {
+        let log = Log::new(3, 2, 2000, " Tainted: G OE".to_string());
+        parse_kernel_log(&log);
+    }
+
+    #[test]
+    fn parse_segfault_log() {
+        let log = Log::new(3, 3, 3000, " segfault at 0x0 ip 0x7fff rsp 0x0".to_string());
+        parse_kernel_log(&log);
+    }
+
+    #[test]
+    fn parse_devmem_log() {
+        let log = Log::new(3, 4, 4000, " Program tried to access /dev/mem range".to_string());
+        parse_kernel_log(&log);
+    }
+
+    #[test]
+    fn parse_livepatch_log() {
+        let log = Log::new(3, 5, 5000, " livepatch: enabling patch".to_string());
+        parse_kernel_log(&log);
+    }
+
+    #[test]
+    fn parse_lsm_ptrace_log() {
+        let log = Log::new(3, 6, 6000, " apparmor= denied ptrace read".to_string());
+        parse_kernel_log(&log);
+    }
+
+    #[test]
+    fn parse_clean_log_no_match() {
+        let log = Log::new(3, 7, 7000, " normal kernel message nothing special".to_string());
+        parse_kernel_log(&log);
     }
 }

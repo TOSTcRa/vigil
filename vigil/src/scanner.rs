@@ -156,7 +156,7 @@ pub fn check_preload(pid: u64, whitelist: &[String]) -> std::io::Result<Option<S
     Ok(None)
 }
 
-// reads /proc/PID/cmdline — the full command that launched the process
+// reads /proc/PID/cmdline - the full command that launched the process
 // args are separated by null bytes, we replace them with spaces for readability
 // used in is_suspicious() to detect debugger tools (gdb, strace, ltrace)
 pub fn get_cmdline(pid: u64) -> std::io::Result<String> {
@@ -165,11 +165,11 @@ pub fn get_cmdline(pid: u64) -> std::io::Result<String> {
     Ok(content.replace('\0', " "))
 }
 
-// reads /proc/PID/exe symlink — points to the real binary path
+// reads /proc/PID/exe symlink - points to the real binary path
 // read_link returns PathBuf, to_string_lossy converts to String
 // checks: if path is NOT whitelisted AND in suspicious dir (/home, /tmp, /dev/shm) -> Some(path)
 // otherwise returns None (safe binary)
-// exe shows real binary path even if process was renamed — cheater cant hide
+// exe shows real binary path even if process was renamed - cheater cant hide
 pub fn get_exe(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>> {
     let path = format!("/proc/{}/exe", pid);
     let content = std::fs::read_link(path)?;
@@ -187,9 +187,9 @@ pub fn get_exe(pid: u64, whitelist: &[String]) -> std::io::Result<Option<String>
     Ok(None)
 }
 
-// reads /proc/PID/fd directory — each entry is a symlink to an open file
+// reads /proc/PID/fd directory - each entry is a symlink to an open file
 // checks if any symlink points to /proc/*/mem (another process memory)
-// filters self-reads (num != pid) — process reading its own mem is normal
+// filters self-reads (num != pid) - process reading its own mem is normal
 // returns vec of victim PIDs whose memory is being read
 // needs root to read other processes fd dirs
 pub fn get_fd(pid: u64) -> std::io::Result<Vec<u64>> {
@@ -218,7 +218,7 @@ pub fn get_fd(pid: u64) -> std::io::Result<Vec<u64>> {
     Ok(res)
 }
 
-// reads /proc/modules — list of currently loaded kernel modules
+// reads /proc/modules - list of currently loaded kernel modules
 // each line starts with module name followed by whitespace-separated fields
 // returns vec of module names for birth/death tracking in main loop
 pub fn get_modules() -> std::io::Result<Vec<String>> {
@@ -235,7 +235,7 @@ pub fn get_modules() -> std::io::Result<Vec<String>> {
 }
 
 // builds a map of tracer_pid -> vec of traced pids from all scanned processes
-// if multiple processes are being traced by the same tracer — thats suspicious
+// if multiple processes are being traced by the same tracer - thats suspicious
 // used in main loop to detect mass-tracing (one process debugging many others)
 pub fn get_cross_traces(procs: &[Proc]) -> HashMap<u64, Vec<u64>> {
     let mut res: HashMap<u64, Vec<u64>> = HashMap::new();
@@ -307,4 +307,53 @@ pub fn check_sandbox() -> std::io::Result<Vec<String>> {
     }
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cross_traces_empty() {
+        let procs: Vec<Proc> = vec![];
+        let result = get_cross_traces(&procs);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn cross_traces_no_tracers() {
+        let procs = vec![
+            Proc::new("bash".into(), 1, ProcessStatus::Running, 0, None, "bash".into(), None, 0),
+            Proc::new("vim".into(), 2, ProcessStatus::Running, 0, None, "vim".into(), None, 1),
+        ];
+        let result = get_cross_traces(&procs);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn cross_traces_single_tracer_multiple_targets() {
+        let procs = vec![
+            Proc::new("game".into(), 100, ProcessStatus::Running, 999, None, "game".into(), None, 1),
+            Proc::new("game2".into(), 200, ProcessStatus::Running, 999, None, "game2".into(), None, 1),
+        ];
+        let result = get_cross_traces(&procs);
+        assert_eq!(result.len(), 1);
+        let targets = result.get(&999).unwrap();
+        assert_eq!(targets.len(), 2);
+        assert!(targets.contains(&100));
+        assert!(targets.contains(&200));
+    }
+
+    #[test]
+    fn cross_traces_multiple_tracers() {
+        let procs = vec![
+            Proc::new("a".into(), 10, ProcessStatus::Running, 1, None, "a".into(), None, 0),
+            Proc::new("b".into(), 20, ProcessStatus::Running, 2, None, "b".into(), None, 0),
+            Proc::new("c".into(), 30, ProcessStatus::Running, 1, None, "c".into(), None, 0),
+        ];
+        let result = get_cross_traces(&procs);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get(&1).unwrap().len(), 2);
+        assert_eq!(result.get(&2).unwrap().len(), 1);
+    }
 }

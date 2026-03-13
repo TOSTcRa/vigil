@@ -1,11 +1,9 @@
-use std::collections::HashSet;
-
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use clap::Parser;
-use uuid::Uuid;
-
-use crate::cli::{Cli, Commands, cmd_check, cmd_init, cmd_scan, cmd_status};
+use crate::cli::{Commands, cmd_check, cmd_init, cmd_scan, cmd_status, parse_args};
 use crate::kernel_log::{get_kernel_logs, parse_kernel_log};
 use crate::report::{
     CheatMatch, CrossTrace, FileIntegrity, ModuleChange, NetworkConnection, SuspiciousProcess,
@@ -23,31 +21,55 @@ use crate::{
     scanner::{get_cross_traces, get_fd, get_map, get_modules, get_process, scan_processes},
 };
 
+mod bpf;
 mod cli;
 mod client;
 mod config;
+mod crypto;
 mod ebpf;
+mod http_client;
+mod json;
 mod kernel_log;
 mod network;
 mod notify;
 mod process;
 mod report;
+mod runtime;
 mod scanner;
+mod sys;
+mod timestamp;
+mod toml_parser;
 
-#[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
+static RUNNING: AtomicBool = AtomicBool::new(true);
 
-    match cli.command {
+unsafe extern "C" fn handle_sigint(_sig: i32) {
+    RUNNING.store(false, Ordering::SeqCst);
+}
+
+fn main() {
+    // install signal handler for ctrl+c
+    libc_signal(2, handle_sigint as *const () as usize); // SIGINT = 2
+
+    match parse_args() {
         Some(Commands::Scan) => cmd_scan(),
         Some(Commands::Check) => cmd_check(),
         Some(Commands::Status) => cmd_status(),
         Some(Commands::Init) => cmd_init(),
-        None => run_daemon().await,
+        None => run_daemon(),
     }
 }
 
-async fn run_daemon() {
+unsafe extern "C" {
+    fn signal(sig: i32, handler: usize) -> usize;
+}
+
+fn libc_signal(sig: i32, handler: usize) {
+    unsafe {
+        signal(sig, handler);
+    }
+}
+
+fn run_daemon() {
     let mut history: HashSet<u64> = HashSet::new();
     let mut module_history: HashSet<String> = HashSet::new();
     let mut found: HashSet<u64> = HashSet::new();
@@ -67,7 +89,7 @@ async fn run_daemon() {
             Some(c)
         }
         Err(e) => {
-            eprintln!("[CONFIG] Failed to load config: {} — using defaults", e);
+            eprintln!("[CONFIG] Failed to load config: {} - using defaults", e);
             None
         }
     };
@@ -87,8 +109,8 @@ async fn run_daemon() {
     let player_id = config
         .as_ref()
         .and_then(|c| c.server.as_ref())
-        .and_then(|s| Uuid::parse_str(&s.player_id).ok())
-        .unwrap_or_else(Uuid::nil);
+        .map(|s| s.player_id.clone())
+        .unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
 
     if server_url.is_some() {
         let _ = log(
@@ -157,14 +179,14 @@ async fn run_daemon() {
                 if changes.is_suspicious() {
                     let _ = log(
                         LogLevel::Cheat,
-                        "Small targeted file change detected — possible cheat injection",
+                        "Small targeted file change detected - possible cheat injection",
                         &log_path,
                     );
                 }
             } else {
                 let _ = log(
                     LogLevel::Info,
-                    "Game integrity OK — no changes since baseline",
+                    "Game integrity OK - no changes since baseline",
                     &log_path,
                 );
             }
@@ -202,11 +224,12 @@ V::::::V           V::::::V                                   l:::::l
                                          gggggg
       "#
     );
+
     match start_ebpf() {
         Ok(mut ebpf) => {
             match get_events(&mut ebpf) {
-                Ok(mut perf_array) => {
-                    if let Err(e) = read_events(&mut perf_array).await {
+                Ok(_event_fds) => {
+                    if let Err(e) = read_events(&mut ebpf) {
                         println!("Error reading events: {:?}", e);
                     } else {
                         println!("eBPF loaded and listening in the background!");
@@ -225,13 +248,13 @@ V::::::V           V::::::V                                   l:::::l
         let dir = dir.clone();
         let baseline = game_baseline.clone();
         let inotify_log_path = log_path.clone();
-        tokio::spawn(async move {
+        std::thread::spawn(move || {
             let _ = log(
                 LogLevel::Inotify,
                 &format!("Starting watcher for {}", dir),
                 &inotify_log_path,
             );
-            if let Err(e) = notify::watch_game_dir(dir, baseline).await {
+            if let Err(e) = notify::watch_game_dir(dir, baseline) {
                 let _ = log(
                     LogLevel::Inotify,
                     &format!("Watcher error: {}", e),
@@ -256,210 +279,207 @@ V::::::V           V::::::V                                   l:::::l
         );
     }
 
-    tokio::select! {
-        _ = async {
-            loop {
-                procs.clear();
+    runtime::block_on(async {
+    while RUNNING.load(Ordering::SeqCst) {
+        procs.clear();
 
-                // Report data collectors
-                let mut report_suspicious: Vec<SuspiciousProcess> = vec![];
-                let mut report_cheats: Vec<CheatMatch> = vec![];
-                let mut report_connections: Vec<NetworkConnection> = vec![];
-                let mut report_modules: Vec<ModuleChange> = vec![];
+        // Report data collectors
+        let mut report_suspicious: Vec<SuspiciousProcess> = vec![];
+        let mut report_cheats: Vec<CheatMatch> = vec![];
+        let mut report_connections: Vec<NetworkConnection> = vec![];
+        let mut report_modules: Vec<ModuleChange> = vec![];
 
-                if let Ok(vec) = scan_processes() {
-                    for &pid in &vec {
-                        if let Ok(proc) = get_process(pid, &whitelist) {
-                            if let Ok(val) = get_map(pid, &mut found_maps, &whitelist)
-                                && !val.is_empty()
-                            {
-                                let _ = log(LogLevel::Alert, &format!("{:?}", val), &log_path);
-                                for (path, reason) in &val {
-                                    report_suspicious.push(SuspiciousProcess {
-                                        pid,
-                                        name: path.clone(),
-                                        reason: reason.clone(),
-                                    });
-                                }
-                            }
-
-                            if let Ok(val) = get_fd(pid)
-                                && !val.is_empty()
-                            {
-                                let _ = log(
-                                    LogLevel::Alert,
-                                    &format!("Process {}, reading other process memory: {:?}", pid, val),
-                                    &log_path,
-                                );
-                            }
-
-                            if let Ok(inodes) = get_inode(pid)
-                                && !inodes.is_empty()
-                                && let Ok(connections) = get_connections(&inodes)
-                            {
-                                for conn in &connections {
-                                    let _ = log(
-                                        LogLevel::Net,
-                                        &format!("pid {} has connection: {}", pid, conn),
-                                        &log_path,
-                                    );
-                                    report_connections.push(NetworkConnection {
-                                        pid,
-                                        address: conn.clone(),
-                                    });
-                                }
-                            }
-
-                            if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
-                                let _ = log(
-                                    LogLevel::Cheat,
-                                    &format!("pid {} matched: {} [{}] — {}", pid, name, category, desc),
-                                    &log_path,
-                                );
-                                report_cheats.push(CheatMatch {
-                                    pid,
-                                    name: name.clone(),
-                                    category: category.clone(),
-                                    description: desc.clone(),
-                                });
-                            }
-
-                            if found.contains(&pid) && !proc.is_suspicious() {
-                                found.remove(&pid);
-                            }
-
-                            if proc.is_suspicious() && !found.contains(&pid) {
-                                let _ = log(LogLevel::Alert, &format!("{:?}", proc), &log_path);
-                                found.insert(pid);
-                            }
-
-                            if !history.contains(&pid) && !first_run {
-                                let _ = log(
-                                    LogLevel::Info,
-                                    &format!("A new process was born: \n{:?}", proc),
-                                    &log_path,
-                                );
-                            }
-
-                            procs.push(proc);
+        if let Ok(vec) = scan_processes() {
+            for &pid in &vec {
+                if let Ok(proc) = get_process(pid, &whitelist) {
+                    if let Ok(val) = get_map(pid, &mut found_maps, &whitelist)
+                        && !val.is_empty()
+                    {
+                        let _ = log(LogLevel::Alert, &format!("{:?}", val), &log_path);
+                        for (path, reason) in &val {
+                            report_suspicious.push(SuspiciousProcess {
+                                pid,
+                                name: path.clone(),
+                                reason: reason.clone(),
+                            });
                         }
                     }
 
-                    let cross_traced = get_cross_traces(&procs);
-                    let report_traces: Vec<CrossTrace> = cross_traced
-                        .iter()
-                        .filter(|(_, targets)| targets.len() > 1)
-                        .map(|(tracer, targets)| {
-                            let _ = log(
-                                LogLevel::Alert,
-                                &format!(
-                                    "Tracer pid {} traces multiple processes: {:?}",
-                                    tracer, targets
-                                ),
-                                &log_path,
-                            );
-                            CrossTrace {
-                                tracer_pid: *tracer,
-                                targets: targets.clone(),
-                            }
-                        })
-                        .collect();
-
-                    history = vec.into_iter().collect();
-
-                    // Module tracking
-                    if let Ok(modules) = get_modules() {
-                        let current_modules: HashSet<String> = modules.into_iter().collect();
-
-                        if !first_run {
-                            for new_mod in current_modules.difference(&module_history) {
-                                let _ = log(
-                                    LogLevel::Alert,
-                                    &format!("New kernel module loaded: {}", new_mod),
-                                    &log_path,
-                                );
-                                report_modules.push(ModuleChange {
-                                    name: new_mod.clone(),
-                                    action: "loaded".to_string(),
-                                });
-                            }
-
-                            for dead_mod in module_history.difference(&current_modules) {
-                                let _ = log(
-                                    LogLevel::Info,
-                                    &format!("Kernel module unloaded: {}", dead_mod),
-                                    &log_path,
-                                );
-                                report_modules.push(ModuleChange {
-                                    name: dead_mod.clone(),
-                                    action: "unloaded".to_string(),
-                                });
-                            }
-                        }
-
-                        module_history = current_modules;
-                    }
-
-                    // Build and send report to server
-                    if let Some(ref url) = server_url {
-                        let integrity = if let Some(ref dir) = game_dir {
-                            if let Ok(current) = scan_game_dir(dir) {
-                                let changes = compare_hashes(&game_baseline, &current);
-                                FileIntegrity {
-                                    status: if changes.total() == 0 {
-                                        "ok".to_string()
-                                    } else {
-                                        "modified".to_string()
-                                    },
-                                    modified: changes.modified,
-                                    added: changes.added,
-                                    removed: changes.removed,
-                                }
-                            } else {
-                                FileIntegrity {
-                                    status: "unknown".to_string(),
-                                    modified: vec![],
-                                    added: vec![],
-                                    removed: vec![],
-                                }
-                            }
-                        } else {
-                            FileIntegrity {
-                                status: "unconfigured".to_string(),
-                                modified: vec![],
-                                added: vec![],
-                                removed: vec![],
-                            }
-                        };
-
-                        let scan_report = build_report(
-                            player_id,
-                            ebpf_active,
-                            &sandbox_reasons,
-                            report_suspicious,
-                            report_cheats,
-                            report_traces,
-                            report_connections,
-                            report_modules,
-                            integrity,
+                    if let Ok(val) = get_fd(pid)
+                        && !val.is_empty()
+                    {
+                        let _ = log(
+                            LogLevel::Alert,
+                            &format!("Process {}, reading other process memory: {:?}", pid, val),
+                            &log_path,
                         );
+                    }
 
-                        if let Err(e) = client::send_report(url, &scan_report).await {
+                    if let Ok(inodes) = get_inode(pid)
+                        && !inodes.is_empty()
+                        && let Ok(connections) = get_connections(&inodes)
+                    {
+                        for conn in &connections {
                             let _ = log(
-                                LogLevel::Info,
-                                &format!("Failed to send report: {}", e),
+                                LogLevel::Net,
+                                &format!("pid {} has connection: {}", pid, conn),
                                 &log_path,
                             );
+                            report_connections.push(NetworkConnection {
+                                pid,
+                                address: conn.clone(),
+                            });
                         }
+                    }
+
+                    if let Ok(Some((name, category, desc))) = check_hash(pid, &cheat_db) {
+                        let _ = log(
+                            LogLevel::Cheat,
+                            &format!("pid {} matched: {} [{}] - {}", pid, name, category, desc),
+                            &log_path,
+                        );
+                        report_cheats.push(CheatMatch {
+                            pid,
+                            name: name.clone(),
+                            category: category.clone(),
+                            description: desc.clone(),
+                        });
+                    }
+
+                    if found.contains(&pid) && !proc.is_suspicious() {
+                        found.remove(&pid);
+                    }
+
+                    if proc.is_suspicious() && !found.contains(&pid) {
+                        let _ = log(LogLevel::Alert, &format!("{:?}", proc), &log_path);
+                        found.insert(pid);
+                    }
+
+                    if !history.contains(&pid) && !first_run {
+                        let _ = log(
+                            LogLevel::Info,
+                            &format!("A new process was born: \n{:?}", proc),
+                            &log_path,
+                        );
+                    }
+
+                    procs.push(proc);
+                }
+            }
+
+            let cross_traced = get_cross_traces(&procs);
+            let report_traces: Vec<CrossTrace> = cross_traced
+                .iter()
+                .filter(|(_, targets)| targets.len() > 1)
+                .map(|(tracer, targets)| {
+                    let _ = log(
+                        LogLevel::Alert,
+                        &format!(
+                            "Tracer pid {} traces multiple processes: {:?}",
+                            tracer, targets
+                        ),
+                        &log_path,
+                    );
+                    CrossTrace {
+                        tracer_pid: *tracer,
+                        targets: targets.clone(),
+                    }
+                })
+                .collect();
+
+            history = vec.into_iter().collect();
+
+            // Module tracking
+            if let Ok(modules) = get_modules() {
+                let current_modules: HashSet<String> = modules.into_iter().collect();
+
+                if !first_run {
+                    for new_mod in current_modules.difference(&module_history) {
+                        let _ = log(
+                            LogLevel::Alert,
+                            &format!("New kernel module loaded: {}", new_mod),
+                            &log_path,
+                        );
+                        report_modules.push(ModuleChange {
+                            name: new_mod.clone(),
+                            action: "loaded".to_string(),
+                        });
+                    }
+
+                    for dead_mod in module_history.difference(&current_modules) {
+                        let _ = log(
+                            LogLevel::Info,
+                            &format!("Kernel module unloaded: {}", dead_mod),
+                            &log_path,
+                        );
+                        report_modules.push(ModuleChange {
+                            name: dead_mod.clone(),
+                            action: "unloaded".to_string(),
+                        });
                     }
                 }
 
-                first_run = false;
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                module_history = current_modules;
             }
-        } => {}
-        _ = tokio::signal::ctrl_c() => {
-            let _ = log(LogLevel::Info, "Vigil stopped (SIGINT)", &log_path);
+
+            // Build and send report to server
+            if let Some(ref url) = server_url {
+                let integrity = if let Some(ref dir) = game_dir {
+                    if let Ok(current) = scan_game_dir(dir) {
+                        let changes = compare_hashes(&game_baseline, &current);
+                        FileIntegrity {
+                            status: if changes.total() == 0 {
+                                "ok".to_string()
+                            } else {
+                                "modified".to_string()
+                            },
+                            modified: changes.modified,
+                            added: changes.added,
+                            removed: changes.removed,
+                        }
+                    } else {
+                        FileIntegrity {
+                            status: "unknown".to_string(),
+                            modified: vec![],
+                            added: vec![],
+                            removed: vec![],
+                        }
+                    }
+                } else {
+                    FileIntegrity {
+                        status: "unconfigured".to_string(),
+                        modified: vec![],
+                        added: vec![],
+                        removed: vec![],
+                    }
+                };
+
+                let scan_report = build_report(
+                    &player_id,
+                    ebpf_active,
+                    &sandbox_reasons,
+                    report_suspicious,
+                    report_cheats,
+                    report_traces,
+                    report_connections,
+                    report_modules,
+                    integrity,
+                );
+
+                if let Err(e) = client::send_report(url, &scan_report, None) {
+                    let _ = log(
+                        LogLevel::Info,
+                        &format!("Failed to send report: {}", e),
+                        &log_path,
+                    );
+                }
+            }
         }
+
+        first_run = false;
+        runtime::sleep(Duration::from_secs(5)).await;
     }
+    }); // block_on
+
+    let _ = log(LogLevel::Info, "Vigil stopped (SIGINT)", &log_path);
 }

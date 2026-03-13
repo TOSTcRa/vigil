@@ -1,5 +1,5 @@
 // extracts socket inode numbers from /proc/PID/fd
-// each fd entry is a symlink — if it points to "socket:[12345]" thats a network socket
+// each fd entry is a symlink - if it points to "socket:[12345]" thats a network socket
 // inode number is used to match against /proc/net/tcp to find actual connections
 // returns vec of inode numbers for this process
 pub fn get_inode(pid: u64) -> std::io::Result<Vec<u64>> {
@@ -27,7 +27,7 @@ pub fn get_inode(pid: u64) -> std::io::Result<Vec<u64>> {
 
 // matches socket inodes against /proc/net/tcp to find active TCP connections
 // /proc/net/tcp format: sl local_addr remote_addr st ... inode
-// remote_addr is hex encoded — e.g. "0100007F:1F90" = 127.0.0.1:8080
+// remote_addr is hex encoded - e.g. "0100007F:1F90" = 127.0.0.1:8080
 // skips header line (starts with "sl") and connections with no remote (00000000:0000)
 // ip bytes are in little-endian order in /proc/net/tcp, converted to readable dotted format
 // returns vec of "ip:port" strings for matched inodes

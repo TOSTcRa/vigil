@@ -8,12 +8,12 @@ use aya_ebpf::{
     programs::{ProbeContext, TracePointContext},
 };
 use vigil_common::SyscallEvent;
-// BPF program — lives inside the kernel, loaded by vigil/src/ebpf.rs
+// BPF program - lives inside the kernel, loaded by vigil/src/ebpf.rs
 // no_std = no standard library (kernel doesnt have it)
 // no_main = no normal main function (kernel loads this differently)
 // compiles to bpfel-unknown-none target with nightly + build-std=core --release
 // two tracepoints: sys_enter_process_vm_readv (310) and sys_enter_process_vm_writev (311)
-// catches EVERY call in real time — unlike /proc polling which checks every 5 sec
+// catches EVERY call in real time - unlike /proc polling which checks every 5 sec
 // sends (pid_caller, pid_target, syscall_type) to userspace via shared PerfEventArray EVENTS map
 // syscall_type: 0 = readv, 1 = writev
 

@@ -1,9 +1,13 @@
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+
+use crate::crypto::sha256_hex;
+use crate::timestamp::now_local_fmt;
+use crate::toml_parser::parse_config;
+
+pub use crate::toml_parser::Config;
 
 pub struct CheatEntry {
     pub hash: String,
@@ -32,43 +36,18 @@ impl std::fmt::Display for LogLevel {
     }
 }
 
-#[derive(Deserialize)]
-pub struct Config {
-    pub game: GameConfig,
-    pub logging: LogConfig,
-    pub server: Option<ServerConfig>,
-}
-
-#[derive(Deserialize)]
-pub struct GameConfig {
-    pub path: String,
-}
-
-#[derive(Deserialize)]
-pub struct LogConfig {
-    pub path: String,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct ServerConfig {
-    pub url: String,
-    pub player_id: String,
-}
-
 pub fn get_config() -> Result<Config, Box<dyn std::error::Error>> {
-    let config_path = std::fs::read_to_string("/etc/vigil/config.toml")?;
-
-    Ok(toml::from_str(&config_path)?)
+    let content = std::fs::read_to_string("/etc/vigil/config.toml")?;
+    parse_config(&content).map_err(|e| e.into())
 }
 
 pub fn log(level: LogLevel, message: &str, path: &str) -> std::io::Result<()> {
-    let time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let time = now_local_fmt();
     let line = format!("{} {} {}", time, level, message);
     println!("{}", line);
 
-    let mut config_file = OpenOptions::new().append(true).create(true).open(path)?;
-
-    writeln!(config_file, "{}", line)?;
+    let mut f = OpenOptions::new().append(true).create(true).open(path)?;
+    writeln!(f, "{}", line)?;
 
     Ok(())
 }
@@ -78,13 +57,11 @@ pub fn log(level: LogLevel, message: &str, path: &str) -> std::io::Result<()> {
 // used by get_map and check_preload to skip known-safe libraries
 // if file doesnt exist -> unwrap_or_default() in main gives empty vec (no whitelist)
 pub fn get_whitelist() -> std::io::Result<Vec<String>> {
-    let path = "/etc/vigil/whitelist.txt";
-    let content = std::fs::read_to_string(path)?;
+    let content = std::fs::read_to_string("/etc/vigil/whitelist.txt")?;
     let mut res: Vec<String> = vec![];
     for line in content.lines() {
         res.push(line.to_string());
     }
-
     Ok(res)
 }
 
@@ -93,8 +70,7 @@ pub fn get_whitelist() -> std::io::Result<Vec<String>> {
 // hash can be "name_only" for name-based detection or a real sha256 hash
 // if file doesnt exist -> unwrap_or_default() in main gives empty vec
 pub fn get_cheat_db() -> std::io::Result<Vec<CheatEntry>> {
-    let path = "/etc/vigil/cheat_hashes.txt";
-    let content = std::fs::read_to_string(path)?;
+    let content = std::fs::read_to_string("/etc/vigil/cheat_hashes.txt")?;
     let mut res = vec![];
 
     for line in content.lines() {
@@ -117,8 +93,8 @@ pub fn get_cheat_db() -> std::io::Result<Vec<CheatEntry>> {
 
 // checks a running process against the cheat signature database
 // two-layer detection:
-// 1. fast name check — reads /proc/PID/exe symlink, compares filename against "name_only" entries
-// 2. sha256 hash check — only runs if database has real hash entries (not just name_only)
+// 1. fast name check - reads /proc/PID/exe symlink, compares filename against "name_only" entries
+// 2. sha256 hash check - only runs if database has real hash entries (not just name_only)
 //    reads the full binary and computes sha256, compares against known hashes
 // name check runs first to avoid expensive disk reads for every process
 // returns (name, category, description) of matched cheat or None
@@ -145,9 +121,7 @@ pub fn check_hash(
 
     if has_hash_entries {
         let binary = std::fs::read(&real_path)?;
-        let mut hasher = Sha256::new();
-        hasher.update(&binary);
-        let hash = format!("{:x}", hasher.finalize());
+        let hash = sha256_hex(&binary);
 
         for entry in cheat_db {
             if entry.hash != "name_only" && hash == entry.hash {
@@ -198,9 +172,7 @@ fn scan_dir_recursive(dir: &Path, result: &mut HashMap<String, String>) -> std::
             scan_dir_recursive(&path, result)?;
         } else {
             let bytes = std::fs::read(&path)?;
-            let mut hasher = Sha256::new();
-            hasher.update(&bytes);
-            let hash = format!("{:x}", hasher.finalize());
+            let hash = sha256_hex(&bytes);
             result.insert(path.to_string_lossy().to_string(), hash);
         }
     }
@@ -252,5 +224,115 @@ pub fn compare_hashes(
         modified,
         added,
         removed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_hashes_no_changes() {
+        let mut baseline = HashMap::new();
+        baseline.insert("/game/a.dll".to_string(), "abc123".to_string());
+        baseline.insert("/game/b.dll".to_string(), "def456".to_string());
+
+        let current = baseline.clone();
+        let changes = compare_hashes(&baseline, &current);
+        assert_eq!(changes.total(), 0);
+        assert!(!changes.is_suspicious());
+    }
+
+    #[test]
+    fn compare_hashes_modified() {
+        let mut baseline = HashMap::new();
+        baseline.insert("/game/a.dll".to_string(), "abc123".to_string());
+
+        let mut current = HashMap::new();
+        current.insert("/game/a.dll".to_string(), "CHANGED".to_string());
+
+        let changes = compare_hashes(&baseline, &current);
+        assert_eq!(changes.modified.len(), 1);
+        assert_eq!(changes.added.len(), 0);
+        assert_eq!(changes.removed.len(), 0);
+        assert_eq!(changes.total(), 1);
+        assert!(changes.is_suspicious()); // 1 change = suspicious
+    }
+
+    #[test]
+    fn compare_hashes_added() {
+        let baseline = HashMap::new();
+        let mut current = HashMap::new();
+        current.insert("/game/new.dll".to_string(), "aaa".to_string());
+
+        let changes = compare_hashes(&baseline, &current);
+        assert_eq!(changes.added.len(), 1);
+        assert_eq!(changes.modified.len(), 0);
+        assert_eq!(changes.removed.len(), 0);
+    }
+
+    #[test]
+    fn compare_hashes_removed() {
+        let mut baseline = HashMap::new();
+        baseline.insert("/game/old.dll".to_string(), "bbb".to_string());
+
+        let current = HashMap::new();
+        let changes = compare_hashes(&baseline, &current);
+        assert_eq!(changes.removed.len(), 1);
+        assert_eq!(changes.added.len(), 0);
+    }
+
+    #[test]
+    fn compare_hashes_many_changes_not_suspicious() {
+        let mut baseline = HashMap::new();
+        for i in 0..10 {
+            baseline.insert(format!("/game/{}.dll", i), format!("old{}", i));
+        }
+        let mut current = HashMap::new();
+        for i in 0..10 {
+            current.insert(format!("/game/{}.dll", i), format!("new{}", i));
+        }
+
+        let changes = compare_hashes(&baseline, &current);
+        assert_eq!(changes.total(), 10);
+        assert!(!changes.is_suspicious()); // >2 changes = not suspicious (likely update)
+    }
+
+    #[test]
+    fn file_changes_total() {
+        let fc = FileChanges {
+            modified: vec!["a".to_string()],
+            added: vec!["b".to_string(), "c".to_string()],
+            removed: vec![],
+        };
+        assert_eq!(fc.total(), 3);
+    }
+
+    #[test]
+    fn load_baseline_roundtrip() {
+        let dir = std::env::temp_dir().join("vigil_test_baseline");
+        let path = dir.to_str().unwrap();
+
+        let mut hashes = HashMap::new();
+        hashes.insert("/game/test.dll".to_string(), "aabbcc".to_string());
+        hashes.insert("/game/lib.so".to_string(), "ddeeff".to_string());
+
+        save_baseline(path, &hashes).unwrap();
+        let loaded = load_baseline(path).unwrap();
+
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.get("/game/test.dll").unwrap(), "aabbcc");
+        assert_eq!(loaded.get("/game/lib.so").unwrap(), "ddeeff");
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn log_level_display() {
+        assert_eq!(format!("{}", LogLevel::Alert), "[ALERT]");
+        assert_eq!(format!("{}", LogLevel::Cheat), "[CHEAT]");
+        assert_eq!(format!("{}", LogLevel::Net), "[NET]");
+        assert_eq!(format!("{}", LogLevel::Inotify), "[INOTIFY]");
+        assert_eq!(format!("{}", LogLevel::Info), "[INFO]");
     }
 }

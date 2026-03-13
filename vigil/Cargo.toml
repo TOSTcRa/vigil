@@ -4,23 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aya = "0.13.1"
-aya-log = "0.2"
-bytes = "1.11.1"
-inotify = "0.11.1"
-tokio-stream = "0.1"
-sha2 = "0.10.9"
-tokio = { version = "1.49.0", features = [
-  "rt",
-  "macros",
-  "rt-multi-thread",
-  "signal",
-] }
 vigil-common = { path = "../vigil-common", features = ["user"] }
-toml = "1.0.6"
-serde = { version = "1.0.228", features = ["derive"] }
-chrono = { version = "0.4.44", features = ["serde"] }
-clap = { version = "4.5.60", features = ["derive"] }
-reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
-serde_json = "1"
-uuid = { version = "1", features = ["v4", "serde"] }

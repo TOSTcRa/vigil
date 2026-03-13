@@ -1,122 +1,136 @@
-use inotify::{Inotify, WatchDescriptor, WatchMask};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tokio_stream::StreamExt;
 
-// Real-time game directory watcher using Linux inotify
-// Recursively watches all subdirectories for file changes (modify/create/delete/move)
-// When a new subdirectory appears, automatically adds a watch on it
-// Modified files are hashed and compared against baseline to detect tampering
+// inotify event flags
+const IN_MODIFY: u32 = 0x00000002;
+const IN_CREATE: u32 = 0x00000100;
+const IN_DELETE: u32 = 0x00000200;
+const IN_MOVED_FROM: u32 = 0x00000040;
+const IN_MOVED_TO: u32 = 0x00000080;
+const IN_ISDIR: u32 = 0x40000000;
+const IN_CLOEXEC: i32 = 0o2000000;
 
-pub async fn watch_game_dir(dir: String, baseline: HashMap<String, String>) -> std::io::Result<()> {
-    let inotify = Inotify::init()?;
+unsafe extern "C" {
+    fn inotify_init1(flags: i32) -> i32;
+    fn inotify_add_watch(fd: i32, pathname: *const u8, mask: u32) -> i32;
+    fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
+    fn close(fd: i32) -> i32;
+}
 
-    let mut wd_to_path: HashMap<WatchDescriptor, PathBuf> = HashMap::new();
+// kernel inotify_event layout (name field follows immediately after)
+#[repr(C)]
+struct InotifyEvent {
+    wd: i32,
+    mask: u32,
+    cookie: u32,
+    len: u32,
+}
 
-    let mask = WatchMask::MODIFY
-        | WatchMask::CREATE
-        | WatchMask::DELETE
-        | WatchMask::MOVED_FROM
-        | WatchMask::MOVED_TO;
+// watches a game directory for file changes, comparing modified files against baseline hashes
+// runs in a blocking loop - meant to be called from std::thread::spawn
+pub fn watch_game_dir(dir: String, baseline: HashMap<String, String>) -> Result<(), String> {
+    let fd = unsafe { inotify_init1(IN_CLOEXEC) };
+    if fd < 0 {
+        return Err("inotify_init failed".to_string());
+    }
 
-    add_watches_recursive(Path::new(&dir), &inotify, mask, &mut wd_to_path)?;
+    let mut wd_to_path: HashMap<i32, PathBuf> = HashMap::new();
+    let mask = IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO;
 
-    println!(
-        "[INOTIFY] Watching {} ({} directories)",
-        dir,
-        wd_to_path.len()
-    );
+    add_watches_recursive(fd, Path::new(&dir), mask, &mut wd_to_path)?;
 
-    let mut stream = inotify.into_event_stream([0u8; 4096])?;
+    println!("[INOTIFY] Watching {} ({} directories)", dir, wd_to_path.len());
 
-    while let Some(event_or_err) = stream.next().await {
-        let event = match event_or_err {
-            Ok(ev) => ev,
-            Err(e) => {
-                eprintln!("[INOTIFY] Error reading event: {}", e);
+    let mut buf = vec![0u8; 4096];
+    loop {
+        let n = unsafe { read(fd, buf.as_mut_ptr(), buf.len()) };
+        if n <= 0 {
+            break;
+        }
+
+        let mut offset = 0;
+        while offset < n as usize {
+            let event = unsafe { &*(buf.as_ptr().add(offset) as *const InotifyEvent) };
+            let name_len = event.len as usize;
+
+            let name = if name_len > 0 {
+                let name_ptr = unsafe { buf.as_ptr().add(offset + std::mem::size_of::<InotifyEvent>()) };
+                let name_bytes = unsafe { std::slice::from_raw_parts(name_ptr, name_len) };
+                let end = name_bytes.iter().position(|&b| b == 0).unwrap_or(name_len);
+                String::from_utf8_lossy(&name_bytes[..end]).to_string()
+            } else {
+                offset += std::mem::size_of::<InotifyEvent>();
                 continue;
-            }
-        };
+            };
 
-        let dir_path = match wd_to_path.get(&event.wd) {
-            Some(p) => p.clone(),
-            None => continue,
-        };
+            offset += std::mem::size_of::<InotifyEvent>() + name_len;
 
-        let name = match event.name {
-            Some(name) => name.to_string_lossy().to_string(),
-            None => continue,
-        };
+            let dir_path = match wd_to_path.get(&event.wd) {
+                Some(p) => p.clone(),
+                None => continue,
+            };
 
-        let full_path = dir_path.join(&name);
-        let path_str = full_path.to_string_lossy().to_string();
+            let full_path = dir_path.join(&name);
+            let path_str = full_path.to_string_lossy().to_string();
 
-        if event.mask.contains(inotify::EventMask::ISDIR) {
-            if event.mask.contains(inotify::EventMask::CREATE)
-                || event.mask.contains(inotify::EventMask::MOVED_TO)
-            {
-                if let Ok(wd) = stream.watches().add(&full_path, mask) {
-                    wd_to_path.insert(wd, full_path.clone());
+            if event.mask & IN_ISDIR != 0 {
+                if event.mask & (IN_CREATE | IN_MOVED_TO) != 0 {
+                    add_watch(fd, &full_path, mask, &mut wd_to_path);
                     println!("[INOTIFY] New directory watched: {}", path_str);
                 }
+                continue;
             }
-            continue;
-        }
 
-        if event.mask.contains(inotify::EventMask::MODIFY) {
-            match hash_file(&full_path) {
-                Ok(hash) => {
-                    if let Some(baseline_hash) = baseline.get(&path_str) {
-                        if *baseline_hash != hash {
-                            println!("[INOTIFY] MODIFIED: {} (hash changed)", path_str);
+            if event.mask & IN_MODIFY != 0 {
+                match hash_file(&full_path) {
+                    Ok(hash) => {
+                        if let Some(baseline_hash) = baseline.get(&path_str) {
+                            if *baseline_hash != hash {
+                                println!("[INOTIFY] MODIFIED: {} (hash changed)", path_str);
+                            }
+                        } else {
+                            println!("[INOTIFY] MODIFIED: {} (not in baseline)", path_str);
                         }
-                    } else {
-                        println!("[INOTIFY] MODIFIED: {} (not in baseline)", path_str);
                     }
+                    Err(_) => println!("[INOTIFY] MODIFIED: {} (could not hash)", path_str),
                 }
-                Err(_) => {
-                    println!("[INOTIFY] MODIFIED: {} (could not hash)", path_str);
-                }
+            } else if event.mask & (IN_CREATE | IN_MOVED_TO) != 0 {
+                println!("[INOTIFY] ADDED: {}", path_str);
+            } else if event.mask & (IN_DELETE | IN_MOVED_FROM) != 0 {
+                println!("[INOTIFY] REMOVED: {}", path_str);
             }
-        } else if event.mask.contains(inotify::EventMask::CREATE)
-            || event.mask.contains(inotify::EventMask::MOVED_TO)
-        {
-            println!("[INOTIFY] ADDED: {}", path_str);
-        } else if event.mask.contains(inotify::EventMask::DELETE)
-            || event.mask.contains(inotify::EventMask::MOVED_FROM)
-        {
-            println!("[INOTIFY] REMOVED: {}", path_str);
         }
     }
 
+    unsafe { close(fd) };
     Ok(())
 }
 
-// Recursively adds inotify watches on a directory and all its subdirectories
+fn add_watch(fd: i32, path: &Path, mask: u32, wd_to_path: &mut HashMap<i32, PathBuf>) {
+    let path_str = format!("{}\0", path.display());
+    let wd = unsafe { inotify_add_watch(fd, path_str.as_ptr(), mask) };
+    if wd >= 0 {
+        wd_to_path.insert(wd, path.to_path_buf());
+    }
+}
+
 fn add_watches_recursive(
+    fd: i32,
     dir: &Path,
-    inotify: &Inotify,
-    mask: WatchMask,
-    wd_to_path: &mut HashMap<WatchDescriptor, PathBuf>,
-) -> std::io::Result<()> {
-    let wd = inotify.watches().add(dir, mask)?;
-    wd_to_path.insert(wd, dir.to_path_buf());
-
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    mask: u32,
+    wd_to_path: &mut HashMap<i32, PathBuf>,
+) -> Result<(), String> {
+    add_watch(fd, dir, mask, wd_to_path);
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
         if entry.path().is_dir() {
-            add_watches_recursive(&entry.path(), inotify, mask, wd_to_path)?;
+            add_watches_recursive(fd, &entry.path(), mask, wd_to_path)?;
         }
     }
-
     Ok(())
 }
 
-// Computes SHA-256 hash of a file for integrity comparison against baseline
 fn hash_file(path: &Path) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(crate::crypto::sha256_hex(&bytes))
 }

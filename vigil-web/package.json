@@ -1,0 +1,11 @@
+{
+  "name": "vigil-web",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.7"
+  }
+}

@@ -1,102 +1,116 @@
-use aya::Ebpf;
-use aya::maps::{AsyncPerfEventArray, MapData};
-use aya::programs::{KProbe, TracePoint};
-use aya::util::online_cpus;
-use bytes::BytesMut;
-use vigil_common::SyscallEvent;
+// real bpf loader - loads compiled ELF, attaches tracepoints/kprobes, reads perf events
+// uses bpf::loader for ELF parsing + program loading, bpf::perf for ring buffer reading
 
-// loads compiled BPF bytecode from target dir, attaches two tracepoints:
-// trace_read -> sys_enter_process_vm_readv, trace_write -> sys_enter_process_vm_writev
-// returns Ebpf object — MUST be kept alive in main, otherwise BPF unloads from kernel (ownership)
-// needs sudo — loading BPF into kernel requires root
-// BPF must be compiled with --release (dev profile produces invalid bytecode for kernel verifier)
-pub fn start_ebpf() -> Result<Ebpf, Box<dyn std::error::Error>> {
-    let bytes = std::fs::read("./target/bpfel-unknown-none/release/vigil")?;
-    let mut ebpf = Ebpf::load(&bytes)?;
+use std::os::fd::RawFd;
+use std::sync::atomic::Ordering;
 
-    let tp_read = ebpf.program_mut("trace_read").ok_or("program not found")?;
-    let read: &mut TracePoint = tp_read.try_into()?;
-    read.load()?;
-    read.attach("syscalls", "sys_enter_process_vm_readv")?;
+use crate::bpf::loader::BpfLoader;
+use crate::bpf::perf::PerfBuffer;
+use crate::config::{LogLevel, log};
+use crate::sys;
+use crate::RUNNING;
 
-    let tp_write = ebpf.program_mut("trace_write").ok_or("program not found")?;
-    let write: &mut TracePoint = tp_write.try_into()?;
-    write.load()?;
-    write.attach("syscalls", "sys_enter_process_vm_writev")?;
+const BPF_ELF_PATH: &str = "/etc/vigil/vigil-ebpf";
 
-    let tp_ptrace = ebpf
-        .program_mut("trace_ptrace")
-        .ok_or("program not found")?;
-    let ptrace: &mut TracePoint = tp_ptrace.try_into()?;
-    ptrace.load()?;
-    ptrace.attach("syscalls", "sys_enter_ptrace")?;
-
-    let tp_memfd = ebpf.program_mut("trace_memfd").ok_or("program not found")?;
-    let memfd: &mut TracePoint = tp_memfd.try_into()?;
-    memfd.load()?;
-    memfd.attach("syscalls", "sys_enter_memfd_create")?;
-
-    let tp_mem_write = ebpf
-        .program_mut("trace_mem_write")
-        .ok_or("program not found")?;
-    let mem_write: &mut KProbe = tp_mem_write.try_into()?;
-    mem_write.load()?;
-    mem_write.attach("mem_write", 0)?;
-
-    let tp_do_init_module = ebpf
-        .program_mut("trace_do_init_module")
-        .ok_or("program not found")?;
-    let do_init_module: &mut KProbe = tp_do_init_module.try_into()?;
-    do_init_module.load()?;
-    do_init_module.attach("do_init_module", 0)?;
-
-    Ok(ebpf)
+pub struct EbpfState {
+    loader: BpfLoader,
+    perf: Option<PerfBuffer>,
 }
 
-// extracts EVENTS PerfEventArray map from loaded BPF program
-// take_map = removes map from Ebpf (ownership transfer), try_into casts to AsyncPerfEventArray
-// async version needed for tokio-based event reading
-pub fn get_events(
-    ebpf: &mut Ebpf,
-) -> Result<AsyncPerfEventArray<MapData>, Box<dyn std::error::Error>> {
-    let map = ebpf.take_map("EVENTS").ok_or("map not found")?;
-    let map_data: AsyncPerfEventArray<MapData> = map.try_into()?;
-
-    Ok(map_data)
+// load and attach BPF programs from compiled ELF
+pub fn start_ebpf() -> Result<EbpfState, Box<dyn std::error::Error>> {
+    let mut loader = BpfLoader::load(BPF_ELF_PATH)?;
+    loader.attach_all(BPF_ELF_PATH)?;
+    Ok(EbpfState {
+        loader,
+        perf: None,
+    })
 }
 
-// reads BPF events in background — one tokio::spawn per CPU for parallel reading
-// each CPU has its own perf buffer, events arrive independently
-// inside each spawn: infinite loop reading events, parsing raw bytes to SyscallEvent
-// bytes_buff = vec of 10 BytesMut buffers (multiple events can arrive at once)
-// ev.read = how many events were read this batch
-// unsafe read_unaligned: raw bytes -> SyscallEvent via pointer cast (repr(C) guarantees layout)
-// runs in background — returns Ok(()) immediately, spawned tasks keep reading
-pub async fn read_events(
-    perf_array: &mut AsyncPerfEventArray<MapData>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let cpus = online_cpus().map_err(|(msg, e)| format!("{}:{}", msg, e))?;
-    let mut buffers = vec![];
-    for cpu in cpus {
-        let buffer = perf_array.open(cpu, None)?;
+// open perf ring buffers on the EVENTS map, return fds for monitoring
+pub fn get_events(state: &mut EbpfState) -> Result<Vec<RawFd>, Box<dyn std::error::Error>> {
+    let map_fd = state
+        .loader
+        .get_map_fd("EVENTS")
+        .ok_or("EVENTS map not found in BPF ELF")?;
+    let perf = PerfBuffer::open(map_fd)?;
+    let fds = perf.fds().to_vec();
+    state.perf = Some(perf);
+    Ok(fds)
+}
 
-        buffers.push(buffer);
-    }
+// spawn a background thread that polls perf ring buffers and logs BPF events
+pub fn read_events(state: &mut EbpfState) -> Result<(), Box<dyn std::error::Error>> {
+    let perf = state
+        .perf
+        .take()
+        .ok_or("perf buffers not initialized - call get_events first")?;
 
-    for mut buf in buffers {
-        tokio::spawn(async move {
-            loop {
-                let mut bytes_buff: Vec<BytesMut> = vec![BytesMut::with_capacity(1024); 10];
-                if let Ok(ev) = buf.read_events(&mut bytes_buff[..]).await {
-                    for i in 0..ev.read {
-                        let ptr = bytes_buff[i].as_ptr() as *const SyscallEvent;
-                        let syscall = unsafe { std::ptr::read_unaligned(ptr) };
-                        println!("{:?}", syscall);
+    std::thread::spawn(move || {
+        let log_path = "/var/log/vigil.log".to_string();
+
+        // set up epoll to watch all perf fds
+        let epfd = match sys::sys_epoll_create() {
+            Ok(fd) => fd,
+            Err(e) => {
+                let _ = log(
+                    LogLevel::Alert,
+                    &format!("eBPF epoll_create failed: {}", e),
+                    &log_path,
+                );
+                return;
+            }
+        };
+
+        let perf_fds = perf.fds().to_vec();
+        for &fd in &perf_fds {
+            let _ = sys::sys_epoll_ctl(epfd, sys::EPOLL_CTL_ADD, fd, sys::EPOLLIN);
+        }
+
+        let mut events = [sys::EpollEvent { events: 0, data: 0 }; 32];
+
+        while RUNNING.load(Ordering::SeqCst) {
+            let n = match sys::sys_epoll_wait(epfd, &mut events, 200) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+
+            for i in 0..n {
+                let ready_fd = events[i].data as RawFd;
+
+                // find which CPU this fd belongs to and read its events
+                for (cpu, &pfd) in perf_fds.iter().enumerate() {
+                    if pfd == ready_fd {
+                        perf.read_events(cpu, |data| {
+                            // data is a raw SyscallEvent from the BPF program
+                            if data.len() >= 12 {
+                                // SyscallEvent: pid_caller(u32) + pid_target(u32) + syscall_type(u32)
+                                let caller = u32::from_ne_bytes([
+                                    data[0], data[1], data[2], data[3],
+                                ]);
+                                let target = u32::from_ne_bytes([
+                                    data[4], data[5], data[6], data[7],
+                                ]);
+                                let syscall = u32::from_ne_bytes([
+                                    data[8], data[9], data[10], data[11],
+                                ]);
+                                let _ = log(
+                                    LogLevel::Alert,
+                                    &format!(
+                                        "[eBPF] syscall={} caller={} target={}",
+                                        syscall, caller, target
+                                    ),
+                                    &log_path,
+                                );
+                            }
+                        });
                     }
                 }
             }
-        });
-    }
+        }
+
+        sys::sys_close(epfd);
+    });
 
     Ok(())
 }
